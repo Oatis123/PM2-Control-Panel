@@ -23,7 +23,8 @@ export default function App() {
     openConfigDialog,
     openConfigPath,
     closeTab,
-    selectTab
+    selectTab,
+    reloadActiveTab
   } = useSessionTabs()
 
   const envReady = env.status === 'ready'
@@ -132,6 +133,8 @@ export default function App() {
           onRestart={(name) => void pm2.restartApp(name)}
           onDelete={(name) => void pm2.deleteApp(name)}
           onOpenConfig={() => void openConfigDialog()}
+          onReloadConfig={() => void reloadActiveTab()}
+          reloading={Boolean(activeTab?.loading)}
           error={pm2.error}
         />
         <LogViewer

@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { registerIpcHandlers } from './ipc/register'
+import { stopAllConfigWatchers } from './services/config.service'
 import { stopAllLogStreams } from './services/log-stream.service'
 import { ensurePathInitialized } from './services/path.util'
 import { primeCpuSampler } from './services/sys-metrics.service'
@@ -79,6 +80,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   stopAllLogStreams()
+  stopAllConfigWatchers()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -86,4 +88,5 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopAllLogStreams()
+  stopAllConfigWatchers()
 })

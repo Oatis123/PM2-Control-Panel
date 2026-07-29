@@ -10,6 +10,9 @@ export const IpcChannels = {
   // Config
   CONFIG_OPEN_DIALOG: 'config:openDialog',
   CONFIG_READ: 'config:read',
+  CONFIG_WATCH: 'config:watch',
+  CONFIG_UNWATCH: 'config:unwatch',
+  CONFIG_CHANGED: 'config:changed',
 
   // PM2
   PM2_START_CONFIG: 'pm2:startConfig',

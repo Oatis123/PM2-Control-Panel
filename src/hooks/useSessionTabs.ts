@@ -5,10 +5,20 @@ export interface TabData extends SessionTab {
   apps: EcosystemApp[]
   error?: string
   loading?: boolean
+  /** Bumps on every successful reload so React always sees a new tree */
+  contentKey?: string
 }
 
 function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function normalizePath(filePath: string): string {
+  return filePath.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+}
+
+function contentKeyFromApps(apps: EcosystemApp[]): string {
+  return `${Date.now()}:${apps.map((a) => a.name).join('|')}`
 }
 
 export function useSessionTabs() {
@@ -17,6 +27,10 @@ export function useSessionTabs() {
   const [ready, setReady] = useState(false)
   const [globalError, setGlobalError] = useState<string | null>(null)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  const activeTabIdRef = useRef(activeTabId)
+  activeTabIdRef.current = activeTabId
 
   const persist = useCallback((nextTabs: TabData[], nextActive: string | null) => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
@@ -32,10 +46,14 @@ export function useSessionTabs() {
     const result = await window.api.config.read(tab.filePath)
     if (result.ok && result.data) {
       const data = result.data as ParsedConfig
+      // Fresh array copies so React cannot reuse stale references
+      const apps = data.apps.map((a) => ({ ...a }))
       return {
         ...tab,
+        filePath: data.filePath || tab.filePath,
         fileName: data.fileName,
-        apps: data.apps,
+        apps,
+        contentKey: contentKeyFromApps(apps),
         error: undefined,
         loading: false
       }
@@ -43,11 +61,51 @@ export function useSessionTabs() {
     return {
       ...tab,
       apps: [],
+      contentKey: contentKeyFromApps([]),
       error: result.error ?? 'Failed to load config',
       loading: false
     }
   }, [])
 
+  const replaceTab = useCallback(
+    (tabId: string, loaded: TabData, makeActive: boolean) => {
+      setTabs((prev) => {
+        const next = prev.map((t) => (t.id === tabId ? { ...loaded } : t))
+        persist(next, makeActive ? tabId : activeTabIdRef.current)
+        return next
+      })
+      if (makeActive) {
+        setActiveTabId(tabId)
+      }
+      if (loaded.error) {
+        setGlobalError(loaded.error)
+      } else {
+        setGlobalError(null)
+      }
+    },
+    [persist]
+  )
+
+  const reloadTab = useCallback(
+    async (tabId: string, makeActive = false) => {
+      const tab = tabsRef.current.find((t) => t.id === tabId)
+      if (!tab) return
+
+      setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, loading: true } : t)))
+
+      const loaded = await loadConfigIntoTab({ ...tab, loading: true })
+      replaceTab(tabId, loaded, makeActive)
+    },
+    [loadConfigIntoTab, replaceTab]
+  )
+
+  const reloadActiveTab = useCallback(async () => {
+    const id = activeTabIdRef.current
+    if (!id) return
+    await reloadTab(id, true)
+  }, [reloadTab])
+
+  // Session restore
   useEffect(() => {
     let cancelled = false
 
@@ -55,17 +113,12 @@ export function useSessionTabs() {
       const result = await window.api.session.get()
       if (cancelled) return
 
-      if (!result.ok || !result.data) {
+      if (!result.ok || !result.data || result.data.tabs.length === 0) {
         setReady(true)
         return
       }
 
       const session = result.data
-      if (session.tabs.length === 0) {
-        setReady(true)
-        return
-      }
-
       const restored: TabData[] = []
       for (const tab of session.tabs) {
         const loaded = await loadConfigIntoTab({
@@ -74,6 +127,8 @@ export function useSessionTabs() {
           loading: true
         })
         restored.push(loaded)
+        // Watch each restored config for disk changes
+        void window.api.config.watch(tab.filePath)
       }
 
       if (cancelled) return
@@ -91,13 +146,28 @@ export function useSessionTabs() {
     }
   }, [loadConfigIntoTab])
 
+  // Auto-reload when a watched config file changes on disk
+  useEffect(() => {
+    const unsub = window.api.config.onChanged((filePath) => {
+      const norm = normalizePath(filePath)
+      const tab = tabsRef.current.find((t) => normalizePath(t.filePath) === norm)
+      if (tab) {
+        void reloadTab(tab.id, tab.id === activeTabIdRef.current)
+      }
+    })
+    return unsub
+  }, [reloadTab])
+
   const openConfigPath = useCallback(
     async (filePath: string) => {
       setGlobalError(null)
-      const existing = tabs.find((t) => t.filePath === filePath)
+      const normalized = normalizePath(filePath)
+      const existing = tabsRef.current.find((t) => normalizePath(t.filePath) === normalized)
+
       if (existing) {
-        setActiveTabId(existing.id)
-        persist(tabs, existing.id)
+        // Force full reload from disk
+        await reloadTab(existing.id, true)
+        void window.api.config.watch(existing.filePath)
         return
       }
 
@@ -114,17 +184,10 @@ export function useSessionTabs() {
       setActiveTabId(draft.id)
 
       const loaded = await loadConfigIntoTab(draft)
-      setTabs((prev) => {
-        const next = prev.map((t) => (t.id === draft.id ? loaded : t))
-        persist(next, draft.id)
-        return next
-      })
-
-      if (loaded.error) {
-        setGlobalError(loaded.error)
-      }
+      replaceTab(draft.id, loaded, true)
+      void window.api.config.watch(loaded.filePath || filePath)
     },
-    [loadConfigIntoTab, persist, tabs]
+    [loadConfigIntoTab, reloadTab, replaceTab]
   )
 
   const openConfigDialog = useCallback(async () => {
@@ -141,12 +204,17 @@ export function useSessionTabs() {
 
   const closeTab = useCallback(
     (id: string) => {
+      const tab = tabsRef.current.find((t) => t.id === id)
+      if (tab) {
+        void window.api.config.unwatch(tab.filePath)
+      }
+
       setTabs((prev) => {
         const index = prev.findIndex((t) => t.id === id)
         if (index < 0) return prev
         const next = prev.filter((t) => t.id !== id)
-        let nextActive = activeTabId
-        if (activeTabId === id) {
+        let nextActive = activeTabIdRef.current
+        if (activeTabIdRef.current === id) {
           const neighbor = next[index] ?? next[index - 1] ?? null
           nextActive = neighbor?.id ?? null
           setActiveTabId(nextActive)
@@ -155,15 +223,17 @@ export function useSessionTabs() {
         return next
       })
     },
-    [activeTabId, persist]
+    [persist]
   )
 
   const selectTab = useCallback(
     (id: string) => {
       setActiveTabId(id)
-      persist(tabs, id)
+      persist(tabsRef.current, id)
+      // Always re-read from disk when focusing a tab
+      void reloadTab(id, false)
     },
-    [persist, tabs]
+    [persist, reloadTab]
   )
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null
@@ -178,6 +248,7 @@ export function useSessionTabs() {
     openConfigDialog,
     openConfigPath,
     closeTab,
-    selectTab
+    selectTab,
+    reloadActiveTab
   }
 }

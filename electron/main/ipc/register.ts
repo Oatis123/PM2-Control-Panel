@@ -2,7 +2,8 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { IpcChannels } from '../../../shared/ipc'
 import type { ApiResult, ParsedConfig, ProcessMetrics, SessionState } from '../../../shared/types'
 import { checkAndInstall, checkEnvironment, getVersions } from '../services/env.service'
-import { readConfig } from '../services/config.service'
+import { readConfig, watchConfigFile } from '../services/config.service'
+import { resolve } from 'path'
 import * as pm2 from '../services/pm2.service'
 import { getSession, setSession } from '../services/session.store'
 import { getSystemMetrics } from '../services/sys-metrics.service'
@@ -82,6 +83,61 @@ export function registerIpcHandlers(): void {
       }
       const config: ParsedConfig = await readConfig(filePath)
       return ok(config)
+    } catch (e) {
+      return fail(e)
+    }
+  })
+
+  // Per-webContents watch unsubscribers
+  const configWatchUnsubs = new Map<number, Map<string, () => void>>()
+
+  ipcMain.handle(IpcChannels.CONFIG_WATCH, async (event, filePath: string) => {
+    try {
+      if (!filePath || typeof filePath !== 'string') {
+        throw new Error('Invalid file path')
+      }
+      const abs = resolve(filePath)
+      const wcId = event.sender.id
+      let byPath = configWatchUnsubs.get(wcId)
+      if (!byPath) {
+        byPath = new Map()
+        configWatchUnsubs.set(wcId, byPath)
+      }
+      // already watching
+      if (byPath.has(abs.toLowerCase())) {
+        return ok(undefined)
+      }
+
+      const unsub = watchConfigFile(abs, () => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(IpcChannels.CONFIG_CHANGED, abs)
+        }
+      })
+      byPath.set(abs.toLowerCase(), unsub)
+
+      event.sender.once('destroyed', () => {
+        const map = configWatchUnsubs.get(wcId)
+        if (!map) return
+        Array.from(map.values()).forEach((stop) => stop())
+        configWatchUnsubs.delete(wcId)
+      })
+
+      return ok(undefined)
+    } catch (e) {
+      return fail(e)
+    }
+  })
+
+  ipcMain.handle(IpcChannels.CONFIG_UNWATCH, async (event, filePath: string) => {
+    try {
+      const abs = resolve(filePath).toLowerCase()
+      const byPath = configWatchUnsubs.get(event.sender.id)
+      const stop = byPath?.get(abs)
+      if (stop) {
+        stop()
+        byPath?.delete(abs)
+      }
+      return ok(undefined)
     } catch (e) {
       return fail(e)
     }

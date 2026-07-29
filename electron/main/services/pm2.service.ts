@@ -115,7 +115,16 @@ export async function startApp(appName: string, configPath?: string): Promise<st
 }
 
 export async function deleteApp(appName: string): Promise<string> {
-  return runPm2(['delete', appName])
+  try {
+    return await runPm2(['delete', appName])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    // Already gone from PM2 — treat as success so UI can move on
+    if (/not found|doesn't exist|does not exist|unknown/i.test(message)) {
+      return message
+    }
+    throw error
+  }
 }
 
 export async function stopAll(appNames: string[]): Promise<void> {

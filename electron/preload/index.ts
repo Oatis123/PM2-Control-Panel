@@ -34,7 +34,18 @@ const api = {
     openDialog: (): Promise<ApiResult<string | null>> =>
       ipcRenderer.invoke(IpcChannels.CONFIG_OPEN_DIALOG),
     read: (filePath: string): Promise<ApiResult<ParsedConfig>> =>
-      ipcRenderer.invoke(IpcChannels.CONFIG_READ, filePath)
+      ipcRenderer.invoke(IpcChannels.CONFIG_READ, filePath),
+    watch: (filePath: string): Promise<ApiResult<void>> =>
+      ipcRenderer.invoke(IpcChannels.CONFIG_WATCH, filePath),
+    unwatch: (filePath: string): Promise<ApiResult<void>> =>
+      ipcRenderer.invoke(IpcChannels.CONFIG_UNWATCH, filePath),
+    onChanged: (callback: (filePath: string) => void): (() => void) => {
+      const listener = (_: IpcRendererEvent, filePath: string): void => {
+        callback(filePath)
+      }
+      ipcRenderer.on(IpcChannels.CONFIG_CHANGED, listener)
+      return () => ipcRenderer.removeListener(IpcChannels.CONFIG_CHANGED, listener)
+    }
   },
 
   pm2: {

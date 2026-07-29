@@ -2,6 +2,7 @@ import {
   FolderOpen,
   Play,
   RefreshCw,
+  RotateCcw,
   Square,
   Trash2
 } from 'lucide-react'
@@ -24,6 +25,8 @@ interface ProcessTableProps {
   onRestart: (name: string) => void
   onDelete: (name: string) => void
   onOpenConfig: () => void
+  onReloadConfig?: () => void
+  reloading?: boolean
   emptyHint?: string
   error?: string | null
 }
@@ -78,6 +81,8 @@ export function ProcessTable({
   onRestart,
   onDelete,
   onOpenConfig,
+  onReloadConfig,
+  reloading = false,
   emptyHint,
   error
 }: ProcessTableProps) {
@@ -140,6 +145,18 @@ export function ProcessTable({
           <RefreshCw className="h-3.5 w-3.5" />
           Restart All
         </button>
+        {onReloadConfig && (
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || reloading || !filePath}
+            onClick={onReloadConfig}
+            title="Reload config from disk"
+          >
+            <RotateCcw className={`h-3.5 w-3.5 ${reloading ? 'animate-spin' : ''}`} />
+            Reload
+          </button>
+        )}
         {error && (
           <span className="ml-auto truncate text-xs text-ink-muted" title={error}>
             {error}
