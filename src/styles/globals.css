@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-surface text-ink font-sans;
+    user-select: none;
+  }
+
+  * {
+    @apply border-surface-border;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #52525b;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded border border-surface-border
+      bg-surface-panel px-3 py-1.5 text-sm font-medium text-ink
+      transition-colors hover:bg-white hover:text-black
+      disabled:pointer-events-none disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply border-white bg-white text-black hover:bg-ink hover:text-black;
+  }
+
+  .btn-ghost {
+    @apply border-transparent bg-transparent hover:bg-surface-panel hover:text-ink;
+  }
+
+  .btn-icon {
+    @apply inline-flex h-7 w-7 items-center justify-center rounded border border-transparent
+      text-ink-muted transition-colors hover:border-surface-border hover:bg-surface-panel hover:text-ink
+      disabled:pointer-events-none disabled:opacity-40;
+  }
+
+  .panel {
+    @apply border border-surface-border bg-surface-panel;
+  }
+}

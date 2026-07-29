@@ -1,0 +1,36 @@
+appId: com.pm2controlpanel.app
+productName: PM2 Control Panel
+copyright: Copyright © PM2 Control Panel
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: icon.ico
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: PM2 Control Panel
+  installerIcon: icon.ico
+  uninstallerIcon: icon.ico
+  installerHeaderIcon: icon.ico
+  deleteAppDataOnUninstall: false
+  perMachine: false
+  displayLanguageSelector: false
+  # Always append product folder (e.g. D:\Apps → D:\Apps\PM2 Control Panel)
+  include: installer.nsh
