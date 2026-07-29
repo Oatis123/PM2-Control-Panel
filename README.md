@@ -1,64 +1,135 @@
 # PM2 Control Panel
 
-Windows desktop app for managing PM2 processes through ecosystem config files.
+**Desktop control center for PM2 on Windows** — manage ecosystem configs, processes, and logs in a clean monochrome UI.
 
-## Stack
+> Multi-tab configs · live metrics · real-time logs · one-click installer
 
-- Electron + Vite + React + TypeScript
-- Tailwind CSS (monochrome theme)
-- electron-store (session persistence)
-- PM2 CLI via Main process (secure IPC)
+---
 
-## Development
+## Highlights
+
+| | Feature |
+|---|---|
+| **Tabs** | Open several `ecosystem.config.js` files at once; session restores after restart |
+| **Processes** | Start / Stop / Restart / Delete — all apps or one by one |
+| **Metrics** | Status, CPU, RAM, uptime, restarts (poll every 2s) |
+| **Logs** | Config-wide stream + per-process tab; stdout / stderr / search / autoscroll |
+| **Host load** | Compact CPU · GPU · RAM sparklines in the header |
+| **Env setup** | Detects Node / npm / PM2; can install via WinGet + `npm i -g pm2` |
+| **Installer** | Classic NSIS wizard with custom path and product folder |
+
+---
+
+## Screenshots & UI
+
+Monochrome zinc theme (`#09090b` / `#27272a` / `#f4f3f0`):
+
+- Status bar with environment versions and system monitors  
+- Process table with hollow / filled status dots (no loud colors)  
+- Resizable log panel with **Config** and **Process** tabs  
+- Drag-and-drop `.js` ecosystem files onto the window  
+
+---
+
+## Tech stack
+
+```
+Electron  ·  Vite  ·  React  ·  TypeScript
+Tailwind CSS  ·  Lucide  ·  electron-store
+```
+
+| Layer | Role |
+|-------|------|
+| **Renderer** | React UI only |
+| **Preload** | Strict `contextBridge` API (`window.api`) |
+| **Main** | PM2 CLI, filesystem, WinGet, system metrics |
+
+Security defaults: `nodeIntegration: false`, `contextIsolation: true`.
+
+---
+
+## Quick start
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Scripts
+### Useful scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Dev mode with hot reload |
-| `npm run build` | Compile main / preload / renderer |
-| `npm run typecheck` | TypeScript check |
-| `npm run dist` | Build NSIS Wizard installer (x64) |
-| `npm run dist:dir` | Unpackaged win build (for smoke tests) |
+| Command | What it does |
+|---------|----------------|
+| `npm run dev` | Dev server + Electron |
+| `npm run build` | Production compile (main / preload / renderer) |
+| `npm run typecheck` | TypeScript checks |
+| `npm run dist` | NSIS Wizard installer → `release/` |
+| `npm run dist:dir` | Unpacked Windows build (smoke test) |
 
-## Installer (NSIS Wizard)
+---
+
+## Installer
 
 ```bash
 npm run dist
 ```
 
-Output: `release/PM2 Control Panel-Setup-*.exe`
+Artifact:
 
-- Classic wizard (`oneClick: false`)
-- Custom install directory
-- Desktop + Start Menu shortcuts
-- Monochrome app icon
+```text
+release/PM2 Control Panel-Setup-0.1.0.exe
+```
 
-## Features
+- Step-by-step wizard (not one-click)  
+- Choose install directory — app always lands in a **`PM2 Control Panel`** subfolder  
+- Desktop + Start Menu shortcuts  
+- App icon for exe, taskbar, and installer  
 
-- Multi-tab ecosystem configs + session restore
-- Environment check / auto-install (Node via WinGet, PM2 via npm)
-- Process table with live CPU / RAM / uptime / restarts
-- Start / Stop / Restart / Delete (all + per-app)
-- Live log streaming (`pm2 logs` + file tail fallback)
-- Host monitors: CPU / GPU / RAM sparklines in header
-- Secure Electron IPC (`contextIsolation`, no `nodeIntegration`)
+---
 
 ## Sample config
 
-```bash
-# examples/ecosystem.config.js
+Use the included example:
+
+```text
+examples/ecosystem.config.js
 ```
 
-Open it via **Open Config** or drag-and-drop into the window.
+Open via **+** / **Open Config**, or drop the file into the window.
 
-## Security
+---
 
-- `nodeIntegration: false`
-- `contextIsolation: true`
-- Preload `contextBridge` only (`window.api`)
+## Architecture (short)
+
+```text
+┌─────────────────────────────────────┐
+│  Renderer (React + Tailwind)        │
+│  tabs · table · logs · monitors     │
+└──────────────────▲──────────────────┘
+                   │  window.api
+┌──────────────────▼──────────────────┐
+│  Main process                       │
+│  PM2 · config parse · env · metrics │
+└─────────────────────────────────────┘
+```
+
+---
+
+## Project layout
+
+```text
+electron/          Main + preload + services
+src/               React UI
+shared/            Shared types & IPC channels
+resources/         icon.ico, installer.nsh
+examples/          Sample ecosystem config
+```
+
+---
+
+## License
+
+MIT
+
+---
+
+Made with ❤️
