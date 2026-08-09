@@ -170,14 +170,17 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannels.PM2_RESTART_ALL, async (_event, appNames: string[]) => {
-    try {
-      await pm2.restartAll(appNames ?? [])
-      return ok(undefined)
-    } catch (e) {
-      return fail(e)
+  ipcMain.handle(
+    IpcChannels.PM2_RESTART_ALL,
+    async (_event, appNames: string[], configPath?: string) => {
+      try {
+        await pm2.restartAll(appNames ?? [], configPath)
+        return ok(undefined)
+      } catch (e) {
+        return fail(e)
+      }
     }
-  })
+  )
 
   ipcMain.handle(
     IpcChannels.PM2_START_APP,
@@ -198,13 +201,16 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannels.PM2_RESTART_APP, async (_event, appName: string) => {
-    try {
-      return ok(await pm2.restartApp(appName))
-    } catch (e) {
-      return fail(e)
+  ipcMain.handle(
+    IpcChannels.PM2_RESTART_APP,
+    async (_event, appName: string, configPath?: string) => {
+      try {
+        return ok(await pm2.restartApp(appName, configPath))
+      } catch (e) {
+        return fail(e)
+      }
     }
-  })
+  )
 
   ipcMain.handle(IpcChannels.PM2_DELETE_APP, async (_event, appName: string) => {
     try {

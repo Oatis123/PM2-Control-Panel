@@ -127,10 +127,15 @@ export default function App() {
             if (activeTab?.filePath) void pm2.startConfig(activeTab.filePath)
           }}
           onStopAll={() => void pm2.stopAll(apps.map((a) => a.name))}
-          onRestartAll={() => void pm2.restartAll(apps.map((a) => a.name))}
+          onRestartAll={() =>
+            void pm2.restartAll(
+              apps.map((a) => a.name),
+              activeTab?.filePath
+            )
+          }
           onStart={(name) => void pm2.startApp(name, activeTab?.filePath)}
           onStop={(name) => void pm2.stopApp(name)}
-          onRestart={(name) => void pm2.restartApp(name)}
+          onRestart={(name) => void pm2.restartApp(name, activeTab?.filePath)}
           onDelete={(name) => void pm2.deleteApp(name)}
           onOpenConfig={() => void openConfigDialog()}
           onReloadConfig={() => void reloadActiveTab()}

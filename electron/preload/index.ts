@@ -55,14 +55,14 @@ const api = {
       ipcRenderer.invoke(IpcChannels.PM2_START_CONFIG, filePath),
     stopAll: (appNames: string[]): Promise<ApiResult<void>> =>
       ipcRenderer.invoke(IpcChannels.PM2_STOP_ALL, appNames),
-    restartAll: (appNames: string[]): Promise<ApiResult<void>> =>
-      ipcRenderer.invoke(IpcChannels.PM2_RESTART_ALL, appNames),
+    restartAll: (appNames: string[], configPath?: string): Promise<ApiResult<void>> =>
+      ipcRenderer.invoke(IpcChannels.PM2_RESTART_ALL, appNames, configPath),
     startApp: (appName: string, configPath?: string): Promise<ApiResult<string>> =>
       ipcRenderer.invoke(IpcChannels.PM2_START_APP, appName, configPath),
     stopApp: (appName: string): Promise<ApiResult<string>> =>
       ipcRenderer.invoke(IpcChannels.PM2_STOP_APP, appName),
-    restartApp: (appName: string): Promise<ApiResult<string>> =>
-      ipcRenderer.invoke(IpcChannels.PM2_RESTART_APP, appName),
+    restartApp: (appName: string, configPath?: string): Promise<ApiResult<string>> =>
+      ipcRenderer.invoke(IpcChannels.PM2_RESTART_APP, appName, configPath),
     deleteApp: (appName: string): Promise<ApiResult<string>> =>
       ipcRenderer.invoke(IpcChannels.PM2_DELETE_APP, appName),
     flush: (appName?: string): Promise<ApiResult<string>> =>

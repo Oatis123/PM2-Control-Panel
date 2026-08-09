@@ -62,7 +62,8 @@ export function usePm2Processes(enabled: boolean) {
   )
 
   const restartAll = useCallback(
-    (names: string[]) => runAction(() => window.api.pm2.restartAll(names)),
+    (names: string[], configPath?: string) =>
+      runAction(() => window.api.pm2.restartAll(names, configPath)),
     [runAction]
   )
 
@@ -78,7 +79,8 @@ export function usePm2Processes(enabled: boolean) {
   )
 
   const restartApp = useCallback(
-    (name: string) => runAction(() => window.api.pm2.restartApp(name)),
+    (name: string, configPath?: string) =>
+      runAction(() => window.api.pm2.restartApp(name, configPath)),
     [runAction]
   )
 

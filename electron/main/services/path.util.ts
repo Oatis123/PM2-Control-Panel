@@ -108,7 +108,11 @@ export function resetPathCache(): void {
 export function getProcessEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    PYTHONIOENCODING: 'utf-8'
+    PYTHONIOENCODING: 'utf-8',
+    // Reduce accidental console noise from some Windows CLIs
+    PYTHONUTF8: '1',
+    NPM_CONFIG_PROGRESS: 'false',
+    NPM_CONFIG_LOGLEVEL: 'error'
   }
 }
 
@@ -225,26 +229,24 @@ export async function runCommand(
     if (process.platform === 'win32') {
       const isExe = resolved.toLowerCase().endsWith('.exe')
 
-      if (isExe) {
-        const { stdout, stderr } = await execFileAsync(resolved, args, {
-          windowsHide: true,
-          timeout,
-          maxBuffer,
-          env,
-          cwd
-        })
-        return { stdout: stdout ?? '', stderr: stderr ?? '', code: 0 }
-      }
-
-      // .cmd / .bat / extensionless shim — must go through the shell.
-      // Quote the executable so paths with spaces (e.g. Program Files) work.
-      const cmdline = [`"${resolved}"`, ...args.map(quoteWindowsArg)].join(' ')
-      const { stdout, stderr } = await execAsync(cmdline, {
-        windowsHide: true,
+      // Always hide console windows for tools we launch from the panel
+      const winOpts = {
+        windowsHide: true as const,
         timeout,
         maxBuffer,
         env,
-        cwd,
+        cwd
+      }
+
+      if (isExe) {
+        const { stdout, stderr } = await execFileAsync(resolved, args, winOpts)
+        return { stdout: stdout ?? '', stderr: stderr ?? '', code: 0 }
+      }
+
+      // .cmd / .bat — run via cmd with hidden window (not a visible console)
+      const cmdline = [`"${resolved}"`, ...args.map(quoteWindowsArg)].join(' ')
+      const { stdout, stderr } = await execAsync(cmdline, {
+        ...winOpts,
         shell: process.env.ComSpec || 'cmd.exe'
       })
       return { stdout: stdout ?? '', stderr: stderr ?? '', code: 0 }

@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'child_process'
+import type { ChildProcess } from 'child_process'
 import { createReadStream, existsSync, readdirSync, statSync, watch } from 'fs'
 import type { FSWatcher } from 'fs'
 import { homedir } from 'os'
@@ -6,28 +6,26 @@ import { join } from 'path'
 import type { WebContents } from 'electron'
 import { IpcChannels } from '../../../shared/ipc'
 import type { LogLine, LogStreamType, LogSubscribeRequest } from '../../../shared/types'
-import { ensurePathInitialized, getProcessEnv } from './path.util'
-import { resolveTools } from './tools.resolver'
+import { ensurePathInitialized } from './path.util'
 
 const MAX_BUFFER_CHARS = 64_000
+const POLL_MS = 400
+const INITIAL_TAIL_BYTES = 48_768
 
 interface ActiveStream {
   mode: 'app' | 'config'
-  /** Display / single-app target */
   label: string
-  /** Allowed process names (lowercase) for filtering; empty = no filter */
   allowedApps: Set<string>
   type: LogStreamType
   webContents: WebContents
+  /** Optional legacy pm2 logs child — never killed with taskkill /T */
   proc: ChildProcess | null
   watchers: FSWatcher[]
+  pollTimer: ReturnType<typeof setInterval> | null
   filePositions: Map<string, number>
-  /** filePath → source app name for multi-file tail */
-  fileAppNames: Map<string, string>
+  fileMeta: Map<string, { app: string; kind: 'out' | 'err' }>
   lineSeq: number
   killed: boolean
-  stdoutBuf: string
-  stderrBuf: string
 }
 
 let active: ActiveStream | null = null
@@ -41,7 +39,6 @@ function emitLine(
   if (stream.type === 'out' && partial.type === 'err') return
   if (stream.type === 'err' && partial.type === 'out') return
 
-  // Config mode: drop lines from processes not in this ecosystem
   if (
     stream.mode === 'config' &&
     stream.allowedApps.size > 0 &&
@@ -74,104 +71,37 @@ function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, '')
 }
 
+function cleanLine(raw: string): string {
+  return stripAnsi(raw).replace(/\r/g, '').trimEnd()
+}
+
 /**
- * Parse a raw pm2 log line into app name + message body.
- * Formats: "0|name  | msg", "name | msg", plain text
+ * Soft-kill only the log viewer process itself.
+ * Never use taskkill /T /F — on Windows that can take down PM2-managed apps
+ * that share a process tree / console group with `pm2 logs`.
  */
-function parseLogLine(
-  raw: string,
-  fallbackApp: string
-): { appName: string; text: string } | null {
-  let text = stripAnsi(raw).replace(/\r/g, '').trimEnd()
-  if (!text) return null
-
-  // Timestamp prefix from --timestamp
-  text = text.replace(
-    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\s*:?\s*/,
-    ''
-  )
-
-  // "id|name  | message" or "name | message"
-  const pipe = text.match(/^\s*(?:\d+\|)?\s*([^\s|]+)\s*\|\s?(.*)$/)
-  if (pipe) {
-    return {
-      appName: pipe[1].trim() || fallbackApp,
-      text: pipe[2] ?? ''
-    }
-  }
-
-  return { appName: fallbackApp, text }
-}
-
-function flushBuffer(
-  stream: ActiveStream,
-  which: 'stdout' | 'stderr',
-  chunk: string,
-  eof = false
-): void {
-  const key = which === 'stdout' ? 'stdoutBuf' : 'stderrBuf'
-  stream[key] += chunk
-  if (stream[key].length > MAX_BUFFER_CHARS) {
-    stream[key] = stream[key].slice(-MAX_BUFFER_CHARS)
-  }
-
-  const parts = stream[key].split('\n')
-  if (!eof) {
-    stream[key] = parts.pop() ?? ''
-  } else {
-    stream[key] = ''
-  }
-
-  const defaultType = which === 'stderr' ? 'err' : 'out'
-  const fallbackApp = stream.mode === 'app' ? stream.label : 'config'
-
-  for (const part of parts) {
-    const parsed = parseLogLine(part, fallbackApp)
-    if (!parsed || !parsed.text) continue
-
-    const type =
-      defaultType === 'err' ||
-      (/error|exception|fatal/i.test(part) && which === 'stdout')
-        ? 'err'
-        : 'out'
-
-    emitLine(stream, {
-      appName: parsed.appName,
-      type,
-      text: parsed.text
-    })
-  }
-}
-
-function killProcessTree(proc: ChildProcess): void {
-  if (!proc.pid) {
-    try {
+function softKill(proc: ChildProcess | null): void {
+  if (!proc || proc.killed) return
+  try {
+    // Detach stdio handlers first
+    proc.stdout?.removeAllListeners()
+    proc.stderr?.removeAllListeners()
+    proc.removeAllListeners()
+    if (process.platform === 'win32') {
+      // Kill only this PID, not the tree
       proc.kill()
-    } catch {
-      // ignore
-    }
-    return
-  }
-
-  if (process.platform === 'win32') {
-    try {
-      spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {
-        windowsHide: true,
-        stdio: 'ignore'
-      })
-    } catch {
-      try {
-        proc.kill()
-      } catch {
-        // ignore
-      }
-    }
-  } else {
-    try {
+    } else {
       proc.kill('SIGTERM')
-    } catch {
-      // ignore
+      setTimeout(() => {
+        try {
+          if (!proc.killed) proc.kill('SIGKILL')
+        } catch {
+          // ignore
+        }
+      }, 500)
     }
+  } catch {
+    // ignore
   }
 }
 
@@ -196,7 +126,6 @@ function findLogFiles(appName: string): { out: string[]; err: string[] } {
   const safe = appName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const errRe = new RegExp(`^${safe}-error(-\\d+)?\\.log$`, 'i')
   const outRe = new RegExp(`^${safe}-out(-\\d+)?\\.log$`, 'i')
-  // Older layout sometimes omits -out
   const bareRe = new RegExp(`^${safe}(-\\d+)?\\.log$`, 'i')
 
   for (const f of files) {
@@ -209,58 +138,89 @@ function findLogFiles(appName: string): { out: string[]; err: string[] } {
   return { out, err }
 }
 
-function readNewBytes(
-  stream: ActiveStream,
-  filePath: string,
-  type: 'out' | 'err',
-  sourceApp: string
-): void {
+function readNewBytes(stream: ActiveStream, filePath: string): void {
   try {
-    if (!existsSync(filePath)) return
+    if (stream.killed || !existsSync(filePath)) return
+    const meta = stream.fileMeta.get(filePath)
+    if (!meta) return
+
     const size = statSync(filePath).size
     const prev = stream.filePositions.get(filePath) ?? 0
+
+    // Truncated / rotated
     const start = size < prev ? 0 : prev
     if (size === start) return
 
-    const rs = createReadStream(filePath, { start, end: size - 1, encoding: 'utf8' })
+    // Cap single read to avoid huge spikes
+    const maxChunk = 256 * 1024
+    const end = Math.min(size - 1, start + maxChunk - 1)
+
+    const rs = createReadStream(filePath, {
+      start,
+      end,
+      encoding: 'utf8',
+      flags: 'r' // shared read — does not lock writers on Windows
+    })
+
     let buf = ''
     rs.on('data', (chunk: string | Buffer) => {
       buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
     })
     rs.on('end', () => {
-      stream.filePositions.set(filePath, size)
+      // Only advance after successful read
+      stream.filePositions.set(filePath, end + 1)
+      if (stream.killed) return
+
       const lines = buf.split(/\r?\n/)
       if (lines.length && lines[lines.length - 1] === '') lines.pop()
+
       for (const line of lines) {
-        const parsed = parseLogLine(line, sourceApp)
-        if (!parsed || !parsed.text) continue
+        const text = cleanLine(line)
+        if (!text) continue
         emitLine(stream, {
-          appName: sourceApp,
-          type,
-          text: parsed.text
+          appName: meta.app,
+          type: meta.kind,
+          text
         })
+      }
+
+      // If we didn't catch up to EOF (capped chunk), schedule immediate continue
+      if (end + 1 < size && !stream.killed) {
+        readNewBytes(stream, filePath)
       }
     })
     rs.on('error', () => {
-      // ignore
+      // leave position unchanged so next poll retries
     })
   } catch {
     // ignore
   }
 }
 
-function seedFilePositions(stream: ActiveStream, files: string[], tailBytes = 32_768): void {
+function seedFilePositions(stream: ActiveStream, files: string[]): void {
   for (const file of files) {
     try {
       if (!existsSync(file)) continue
       const size = statSync(file).size
-      stream.filePositions.set(file, Math.max(0, size - tailBytes))
+      stream.filePositions.set(file, Math.max(0, size - INITIAL_TAIL_BYTES))
     } catch {
       stream.filePositions.set(file, 0)
     }
   }
 }
 
+function pollAllFiles(stream: ActiveStream): void {
+  if (stream.killed) return
+  const files = Array.from(stream.fileMeta.keys())
+  for (let i = 0; i < files.length; i++) {
+    readNewBytes(stream, files[i])
+  }
+}
+
+/**
+ * Primary log source: tail ~/.pm2/logs files.
+ * Safe when switching tabs — no child process / taskkill involved.
+ */
 function startFileTail(stream: ActiveStream, appNames: string[]): boolean {
   const targets =
     appNames.length > 0
@@ -282,133 +242,79 @@ function startFileTail(stream: ActiveStream, appNames: string[]): boolean {
     if (all.length === 0) continue
 
     seedFilePositions(stream, all)
+
     for (const f of out) {
-      stream.fileAppNames.set(f, app)
-      readNewBytes(stream, f, 'out', app)
+      stream.fileMeta.set(f, { app, kind: 'out' })
     }
     for (const f of err) {
-      stream.fileAppNames.set(f, app)
-      readNewBytes(stream, f, 'err', app)
+      stream.fileMeta.set(f, { app, kind: 'err' })
     }
 
+    // Initial historical tail
+    for (const f of all) {
+      readNewBytes(stream, f)
+    }
+
+    // Watch for changes + polling fallback (more reliable on Windows)
     for (const file of all) {
       try {
-        const logType: 'out' | 'err' = err.includes(file) ? 'err' : 'out'
         const watcher = watch(file, { persistent: true }, (event) => {
           if (stream.killed) return
-          if (event === 'rename') stream.filePositions.set(file, 0)
-          readNewBytes(stream, file, logType, app)
+          if (event === 'rename') {
+            stream.filePositions.set(file, 0)
+          }
+          readNewBytes(stream, file)
         })
         stream.watchers.push(watcher)
       } catch {
-        // ignore
+        // polling still covers this file
       }
     }
   }
 
   if (totalOut + totalErr === 0) return false
 
+  // Polling backup: fs.watch is flaky on some Windows editors/AV setups
+  stream.pollTimer = setInterval(() => pollAllFiles(stream), POLL_MS)
+
   emitSystem(
     stream,
     stream.mode === 'config'
       ? `Tailing config logs (${targets.length} apps, ${totalOut} out / ${totalErr} err files)`
-      : `Tailing log files for "${stream.label}" (${totalOut} out, ${totalErr} err)`
+      : `Tailing logs for "${stream.label}" (${totalOut} out, ${totalErr} err)`
   )
   return true
 }
 
-async function startPm2LogsProcess(
-  stream: ActiveStream,
-  /** undefined = all processes (config mode) */
-  pm2Target?: string
-): Promise<boolean> {
-  ensurePathInitialized()
-  const tools = await resolveTools()
+function stopStream(stream: ActiveStream): void {
+  stream.killed = true
 
-  let command: string
-  let args: string[]
-
-  const baseArgs =
-    pm2Target != null && pm2Target.length > 0
-      ? ['logs', pm2Target, '--lines', '150', '--timestamp']
-      : ['logs', '--lines', '150', '--timestamp']
-
-  if (stream.type === 'out') baseArgs.push('--out')
-  if (stream.type === 'err') baseArgs.push('--err')
-
-  if (tools.node && tools.pm2Entry) {
-    command = tools.node
-    args = [tools.pm2Entry, ...baseArgs]
-  } else if (tools.pm2Cmd) {
-    command = process.env.ComSpec || 'cmd.exe'
-    args = ['/d', '/s', '/c', `"${tools.pm2Cmd}" ${baseArgs.join(' ')}`]
-  } else {
-    return false
+  if (stream.pollTimer) {
+    clearInterval(stream.pollTimer)
+    stream.pollTimer = null
   }
 
-  return await new Promise<boolean>((resolve) => {
+  softKill(stream.proc)
+  stream.proc = null
+
+  for (const w of stream.watchers) {
     try {
-      const proc = spawn(command, args, {
-        windowsHide: true,
-        env: getProcessEnv(),
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
-
-      stream.proc = proc
-      let settled = false
-
-      const ok = (): void => {
-        if (settled) return
-        settled = true
-        resolve(true)
-      }
-
-      proc.stdout?.on('data', (buf: Buffer) => {
-        ok()
-        flushBuffer(stream, 'stdout', buf.toString('utf8'))
-      })
-      proc.stderr?.on('data', (buf: Buffer) => {
-        ok()
-        flushBuffer(stream, 'stderr', buf.toString('utf8'))
-      })
-
-      proc.on('error', (err) => {
-        if (!settled) {
-          settled = true
-          resolve(false)
-        } else {
-          emitSystem(stream, `Log stream error: ${err.message}`)
-        }
-      })
-
-      proc.on('close', (code) => {
-        flushBuffer(stream, 'stdout', '', true)
-        flushBuffer(stream, 'stderr', '', true)
-        if (!stream.killed) {
-          emitSystem(stream, `Log stream ended (code ${code ?? '?'})`)
-        }
-        if (!settled) {
-          settled = true
-          resolve(code === 0)
-        }
-      })
-
-      setTimeout(() => {
-        if (!settled && !stream.killed && proc.exitCode == null) {
-          settled = true
-          resolve(true)
-        }
-      }, 800)
+      w.close()
     } catch {
-      resolve(false)
+      // ignore
     }
-  })
+  }
+  stream.watchers = []
+  stream.filePositions.clear()
+  stream.fileMeta.clear()
 }
 
 export async function subscribeLogs(
   webContents: WebContents,
   request: LogSubscribeRequest
 ): Promise<void> {
+  ensurePathInitialized()
+
   const type: LogStreamType =
     request.type === 'out' || request.type === 'err' || request.type === 'all'
       ? request.type
@@ -428,37 +334,28 @@ export async function subscribeLogs(
       webContents,
       proc: null,
       watchers: [],
+      pollTimer: null,
       filePositions: new Map(),
-      fileAppNames: new Map(),
+      fileMeta: new Map(),
       lineSeq: 0,
-      killed: false,
-      stdoutBuf: '',
-      stderrBuf: ''
+      killed: false
     }
     active = stream
 
     emitSystem(stream, `Subscribing to logs for "${appName}"...`)
 
-    const started = await startPm2LogsProcess(stream, appName)
-    if (!started || stream.killed) {
-      if (stream.proc) {
-        killProcessTree(stream.proc)
-        stream.proc = null
-      }
-      const tailed = startFileTail(stream, [appName])
-      if (!tailed) {
-        emitSystem(
-          stream,
-          `No log stream available for "${appName}". Start the process or check ~/.pm2/logs/`
-        )
-      }
-    } else {
-      emitSystem(stream, `Streaming pm2 logs for "${appName}"`)
+    // File tail only — never spawn `pm2 logs` (avoids killing apps on tab switch)
+    const tailed = startFileTail(stream, [appName])
+    if (!tailed) {
+      emitSystem(
+        stream,
+        `No log files yet for "${appName}". Start the process; logs appear under ~/.pm2/logs/`
+      )
     }
     return
   }
 
-  // --- config mode: merged logs for all apps in ecosystem ---
+  // --- config mode ---
   const names = (request.appNames ?? []).map((n) => n.trim()).filter(Boolean)
   const stream: ActiveStream = {
     mode: 'config',
@@ -468,12 +365,11 @@ export async function subscribeLogs(
     webContents,
     proc: null,
     watchers: [],
+    pollTimer: null,
     filePositions: new Map(),
-    fileAppNames: new Map(),
+    fileMeta: new Map(),
     lineSeq: 0,
-    killed: false,
-    stdoutBuf: '',
-    stderrBuf: ''
+    killed: false
   }
   active = stream
 
@@ -484,47 +380,20 @@ export async function subscribeLogs(
       : 'Subscribing to config logs...'
   )
 
-  // Prefer global pm2 logs stream (filtered by allowedApps)
-  const started = await startPm2LogsProcess(stream, undefined)
-  if (!started || stream.killed) {
-    if (stream.proc) {
-      killProcessTree(stream.proc)
-      stream.proc = null
-    }
-    const tailed = startFileTail(stream, names)
-    if (!tailed) {
-      emitSystem(
-        stream,
-        'No config log stream available. Start processes or check ~/.pm2/logs/'
-      )
-    }
-  } else {
-    emitSystem(stream, 'Streaming merged config logs')
-    // Also attach file tails so we get typed out/err even if pm2 merges poorly
-    // Skip dual source to avoid duplicates when process stream works.
+  const tailed = startFileTail(stream, names)
+  if (!tailed) {
+    emitSystem(
+      stream,
+      'No log files yet for this config. Start processes; logs appear under ~/.pm2/logs/'
+    )
   }
 }
 
 export async function unsubscribeLogs(): Promise<void> {
   if (!active) return
-
   const stream = active
-  stream.killed = true
   active = null
-
-  if (stream.proc) {
-    killProcessTree(stream.proc)
-    stream.proc = null
-  }
-
-  for (const w of stream.watchers) {
-    try {
-      w.close()
-    } catch {
-      // ignore
-    }
-  }
-  stream.watchers = []
+  stopStream(stream)
 }
 
 export function stopAllLogStreams(): void {

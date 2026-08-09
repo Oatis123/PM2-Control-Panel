@@ -12,6 +12,10 @@ extraResources:
     to: icon.ico
   - from: resources/icon.png
     to: icon.png
+  - from: resources/windows-hide-children.cjs
+    to: windows-hide-children.cjs
+  - from: resources/python-hide-console
+    to: python-hide-console
 win:
   target:
     - target: nsis

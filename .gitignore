@@ -10,6 +10,8 @@ Thumbs.db
 *.local
 *.tsbuildinfo
 electron.vite.config.*.mjs
+__pycache__/
+*.py[cod]
 .vscode/*
 !.vscode/extensions.json
 .idea
