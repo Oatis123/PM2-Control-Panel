@@ -100,5 +100,9 @@ export interface SystemMetrics {
   /** null when GPU utilization cannot be read */
   gpu: number | null
   gpuLabel: string | null
+  /** Dedicated video memory usage in percent; null when unavailable */
+  vram: number | null
+  vramUsedMb: number | null
+  vramTotalMb: number | null
   timestamp: number
 }

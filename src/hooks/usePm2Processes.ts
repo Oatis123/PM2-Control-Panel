@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ProcessMetrics } from '../../shared/types'
+import { usePolling } from './usePolling'
 
 const POLL_MS = 2000
 
@@ -19,19 +20,12 @@ export function usePm2Processes(enabled: boolean) {
     }
   }, [enabled])
 
+  // Polls only while enabled and the window is visible; never overlaps itself
+  usePolling(refresh, POLL_MS, enabled)
+
   useEffect(() => {
-    if (!enabled) {
-      setProcesses([])
-      return
-    }
-
-    void refresh()
-    const timer = setInterval(() => {
-      void refresh()
-    }, POLL_MS)
-
-    return () => clearInterval(timer)
-  }, [enabled, refresh])
+    if (!enabled) setProcesses([])
+  }, [enabled])
 
   const runAction = useCallback(
     async (action: () => Promise<{ ok: boolean; error?: string }>) => {

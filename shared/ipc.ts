@@ -25,7 +25,8 @@ export const IpcChannels = {
   PM2_JLIST: 'pm2:jlist',
   PM2_LOGS_SUBSCRIBE: 'pm2:logsSubscribe',
   PM2_LOGS_UNSUBSCRIBE: 'pm2:logsUnsubscribe',
-  PM2_LOG_LINE: 'pm2:logLine',
+  /** Batched: payload is LogLine[] */
+  PM2_LOG_LINES: 'pm2:logLines',
   PM2_FLUSH: 'pm2:flush',
 
   // Session

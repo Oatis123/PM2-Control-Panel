@@ -5,7 +5,7 @@ import { registerIpcHandlers } from './ipc/register'
 import { stopAllConfigWatchers } from './services/config.service'
 import { stopAllLogStreams } from './services/log-stream.service'
 import { ensurePathInitialized } from './services/path.util'
-import { primeCpuSampler } from './services/sys-metrics.service'
+import { primeCpuSampler, primeGpuSampler } from './services/sys-metrics.service'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -66,6 +66,7 @@ app.whenReady().then(() => {
   // Merge User+Machine PATH so node/npm/pm2 are visible when launched from GUI
   ensurePathInitialized()
   primeCpuSampler()
+  primeGpuSampler()
   // Second sample shortly after so the first UI poll has a real CPU delta
   setTimeout(() => primeCpuSampler(), 400)
   registerIpcHandlers()

@@ -12,13 +12,25 @@ interface CpuSnapshot {
 }
 
 let prevCpu: CpuSnapshot | null = null
-let cachedGpu: { value: number | null; at: number; label: string | null } = {
-  value: null,
-  at: 0,
-  label: null
+interface GpuSample {
+  percent: number
+  label: string
+  vramUsedMb: number | null
+  vramTotalMb: number | null
 }
 
-const GPU_CACHE_MS = 1500
+const GPU_REFRESH_MS = 1500
+/** How long to wait before retrying a GPU source that failed */
+const GPU_RETRY_MS = 30_000
+
+let cachedGpu: GpuSample | null = null
+let gpuRefreshedAt = 0
+let gpuInFlight: Promise<void> | null = null
+/** Resolved once — `where.exe` must not run on every sample */
+let nvidiaSmiPath: string | null | undefined
+let nvidiaFailedAt = 0
+let counterFailedAt = 0
+let vramTotalCacheMb: number | null | undefined
 
 function readCpuSnapshot(): CpuSnapshot {
   let idle = 0
@@ -63,15 +75,15 @@ function sampleRam(): { percent: number; usedGb: number; totalGb: number } {
   }
 }
 
-async function sampleGpuNvidia(): Promise<{ percent: number; label: string } | null> {
+async function sampleGpuNvidia(): Promise<GpuSample | null> {
   try {
-    const smi = await resolveCommand('nvidia-smi')
-    if (!smi) return null
+    if (nvidiaSmiPath === undefined) nvidiaSmiPath = await resolveCommand('nvidia-smi')
+    if (!nvidiaSmiPath) return null
 
     const { stdout } = await execFileAsync(
-      smi,
+      nvidiaSmiPath,
       [
-        '--query-gpu=utilization.gpu,name',
+        '--query-gpu=utilization.gpu,memory.used,memory.total,name',
         '--format=csv,noheader,nounits'
       ],
       {
@@ -88,38 +100,59 @@ async function sampleGpuNvidia(): Promise<{ percent: number; label: string } | n
       .filter(Boolean)[0]
     if (!line) return null
 
-    // e.g. "12, NVIDIA GeForce RTX 3060"
-    const [utilPart, ...nameParts] = line.split(',')
-    const percent = clampPercent(Number.parseFloat(utilPart.trim()))
-    const label = nameParts.join(',').trim() || 'NVIDIA GPU'
+    // e.g. "12, 1861, 8188, NVIDIA GeForce RTX 4060"
+    const [utilPart, usedPart, totalPart, ...nameParts] = line.split(',')
+    const percent = Number.parseFloat(utilPart.trim())
     if (Number.isNaN(percent)) return null
-    return { percent, label }
+    const used = Number.parseFloat(usedPart?.trim() ?? '')
+    const total = Number.parseFloat(totalPart?.trim() ?? '')
+
+    return {
+      percent: clampPercent(percent),
+      label: nameParts.join(',').trim() || 'NVIDIA GPU',
+      vramUsedMb: Number.isFinite(used) ? used : null,
+      vramTotalMb: Number.isFinite(total) && total > 0 ? total : null
+    }
   } catch {
     return null
   }
 }
 
 /**
- * Windows Performance Counter for GPU Engine utilization (avg of 3D engines).
- * Slower and noisier than nvidia-smi — used as fallback.
+ * Windows Performance Counters (GPU Engine utilization + GPU Adapter Memory).
+ * Slower and noisier than nvidia-smi — used as fallback for AMD / Intel GPUs.
+ * Output: "<util>|<vramUsedMb>|<vramTotalMb>" (empty field when unknown).
  */
-async function sampleGpuWindowsCounter(): Promise<{ percent: number; label: string } | null> {
+async function sampleGpuWindowsCounter(): Promise<GpuSample | null> {
   if (process.platform !== 'win32') return null
 
   try {
     const ps = `
 $ErrorActionPreference = 'SilentlyContinue'
-$samples = Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue
+$paths = @('\\GPU Engine(*)\\Utilization Percentage', '\\GPU Adapter Memory(*)\\Dedicated Usage')
+$samples = (Get-Counter -Counter $paths -ErrorAction SilentlyContinue).CounterSamples
 if (-not $samples) { exit 1 }
-$vals = $samples.CounterSamples |
+$engine = $samples | Where-Object { $_.Path -like '*gpu engine*' }
+$vals = $engine |
   Where-Object { $_.InstanceName -match 'engtype_3D' -or $_.InstanceName -match 'engtype_Graphics' } |
   ForEach-Object { [double]$_.CookedValue }
-if (-not $vals -or $vals.Count -eq 0) {
-  $vals = $samples.CounterSamples | ForEach-Object { [double]$_.CookedValue }
+if (-not $vals) { $vals = $engine | ForEach-Object { [double]$_.CookedValue } }
+$util = ''
+if ($vals) { $util = [Math]::Round([Math]::Min(100, [Math]::Max(0, ($vals | Measure-Object -Sum).Sum)), 1) }
+$mem = $samples | Where-Object { $_.Path -like '*gpu adapter memory*' } | ForEach-Object { [double]$_.CookedValue }
+$used = ''
+if ($mem) { $used = [Math]::Round(($mem | Measure-Object -Maximum).Maximum / 1MB, 0) }
+$total = ''
+if (${vramTotalCacheMb === undefined ? '$true' : '$false'}) {
+  $max = 0
+  Get-ChildItem 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}' |
+    ForEach-Object {
+      $v = (Get-ItemProperty $_.PSPath -Name 'HardwareInformation.qwMemorySize').'HardwareInformation.qwMemorySize'
+      if ($v -gt $max) { $max = [double]$v }
+    }
+  if ($max -gt 0) { $total = [Math]::Round($max / 1MB, 0) }
 }
-if (-not $vals -or $vals.Count -eq 0) { exit 1 }
-$avg = ($vals | Measure-Object -Average).Average
-[Math]::Round([Math]::Min(100, [Math]::Max(0, $avg)), 1)
+"$util|$used|$total"
 `.trim()
 
     const { stdout } = await execFileAsync(
@@ -133,36 +166,60 @@ $avg = ($vals | Measure-Object -Average).Average
       }
     )
 
-    const percent = clampPercent(Number.parseFloat(stdout.trim()))
-    if (Number.isNaN(percent)) return null
-    return { percent, label: 'GPU' }
+    const [utilPart = '', usedPart = '', totalPart = ''] = stdout.trim().split('|')
+    const util = Number.parseFloat(utilPart)
+    const used = Number.parseFloat(usedPart)
+    const total = Number.parseFloat(totalPart)
+
+    if (vramTotalCacheMb === undefined) {
+      vramTotalCacheMb = Number.isFinite(total) && total > 0 ? total : null
+    }
+    if (!Number.isFinite(util) && !Number.isFinite(used)) return null
+
+    return {
+      percent: Number.isFinite(util) ? clampPercent(util) : 0,
+      label: 'GPU',
+      vramUsedMb: Number.isFinite(used) ? used : null,
+      vramTotalMb: vramTotalCacheMb ?? null
+    }
   } catch {
     return null
   }
 }
 
-async function sampleGpu(): Promise<{ percent: number | null; label: string | null }> {
-  const now = Date.now()
-  if (now - cachedGpu.at < GPU_CACHE_MS) {
-    return { percent: cachedGpu.value, label: cachedGpu.label }
-  }
-
+async function refreshGpu(): Promise<void> {
   ensurePathInitialized()
+  const now = Date.now()
 
-  const nvidia = await sampleGpuNvidia()
-  if (nvidia) {
-    cachedGpu = { value: nvidia.percent, at: now, label: nvidia.label }
-    return { percent: nvidia.percent, label: nvidia.label }
+  let sample: GpuSample | null = null
+  if (now - nvidiaFailedAt > GPU_RETRY_MS) {
+    sample = await sampleGpuNvidia()
+    if (!sample) nvidiaFailedAt = Date.now()
+  }
+  if (!sample && now - counterFailedAt > GPU_RETRY_MS) {
+    sample = await sampleGpuWindowsCounter()
+    if (!sample) counterFailedAt = Date.now()
   }
 
-  const win = await sampleGpuWindowsCounter()
-  if (win) {
-    cachedGpu = { value: win.percent, at: now, label: win.label }
-    return { percent: win.percent, label: win.label }
-  }
+  cachedGpu = sample
+  gpuRefreshedAt = Date.now()
+}
 
-  cachedGpu = { value: null, at: now, label: null }
-  return { percent: null, label: null }
+/**
+ * Never blocks the metrics call: returns the last sample and refreshes in the
+ * background (one refresh at a time) when it is stale.
+ */
+function sampleGpu(): GpuSample | null {
+  if (!gpuInFlight && Date.now() - gpuRefreshedAt >= GPU_REFRESH_MS) {
+    gpuInFlight = refreshGpu()
+      .catch(() => {
+        cachedGpu = null
+      })
+      .finally(() => {
+        gpuInFlight = null
+      })
+  }
+  return cachedGpu
 }
 
 /** Warm CPU sampler so the first public read is meaningful. */
@@ -170,18 +227,31 @@ export function primeCpuSampler(): void {
   prevCpu = readCpuSnapshot()
 }
 
+/** Start the first GPU sample early so the first UI poll already has data. */
+export function primeGpuSampler(): void {
+  sampleGpu()
+}
+
 export async function getSystemMetrics(): Promise<SystemMetrics> {
   const cpu = sampleCpuPercent()
   const ram = sampleRam()
-  const gpu = await sampleGpu()
+  const gpu = sampleGpu()
+
+  const vramUsed = gpu?.vramUsedMb ?? null
+  const vramTotal = gpu?.vramTotalMb ?? null
+  const vramPercent =
+    vramUsed != null && vramTotal != null ? clampPercent((vramUsed / vramTotal) * 100) : null
 
   return {
     cpu,
     ram: ram.percent,
     ramUsedGb: ram.usedGb,
     ramTotalGb: ram.totalGb,
-    gpu: gpu.percent,
-    gpuLabel: gpu.label,
+    gpu: gpu?.percent ?? null,
+    gpuLabel: gpu?.label ?? null,
+    vram: vramPercent,
+    vramUsedMb: vramUsed,
+    vramTotalMb: vramTotal,
     timestamp: Date.now()
   }
 }

@@ -71,12 +71,12 @@ const api = {
       ipcRenderer.invoke(IpcChannels.PM2_LOGS_SUBSCRIBE, request),
     unsubscribeLogs: (): Promise<ApiResult<void>> =>
       ipcRenderer.invoke(IpcChannels.PM2_LOGS_UNSUBSCRIBE),
-    onLogLine: (callback: (line: LogLine) => void): (() => void) => {
-      const listener = (_: IpcRendererEvent, line: LogLine): void => {
-        callback(line)
+    onLogLines: (callback: (lines: LogLine[]) => void): (() => void) => {
+      const listener = (_: IpcRendererEvent, lines: LogLine[]): void => {
+        callback(lines)
       }
-      ipcRenderer.on(IpcChannels.PM2_LOG_LINE, listener)
-      return () => ipcRenderer.removeListener(IpcChannels.PM2_LOG_LINE, listener)
+      ipcRenderer.on(IpcChannels.PM2_LOG_LINES, listener)
+      return () => ipcRenderer.removeListener(IpcChannels.PM2_LOG_LINES, listener)
     }
   },
 

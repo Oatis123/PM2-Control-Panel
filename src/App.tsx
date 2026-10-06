@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { EcosystemApp } from '../shared/types'
 import { EnvBanner } from './components/env/EnvBanner'
 import { StatusBar } from './components/layout/StatusBar'
 import { Splitter } from './components/layout/Splitter'
@@ -8,11 +9,11 @@ import { TabBar } from './components/tabs/TabBar'
 import { useEnv } from './hooks/useEnv'
 import { usePm2Processes } from './hooks/usePm2Processes'
 import { useSessionTabs } from './hooks/useSessionTabs'
-import { useSystemMetrics } from './hooks/useSystemMetrics'
+
+const NO_APPS: EcosystemApp[] = []
 
 export default function App() {
   const { env, progress, checkAndInstall, refresh: refreshEnv } = useEnv()
-  const systemMetrics = useSystemMetrics()
   const {
     ready,
     tabs,
@@ -35,7 +36,9 @@ export default function App() {
   const [logTab, setLogTab] = useState<LogPanelTab>('config')
 
   // Keep selection in sync with active tab apps
-  const apps = activeTab?.apps ?? []
+  const apps = activeTab?.apps ?? NO_APPS
+  const appNames = useMemo(() => apps.map((a) => a.name), [apps])
+  const activeFilePath = activeTab?.filePath
   const effectiveSelected =
     selectedApp && apps.some((a) => a.name === selectedApp)
       ? selectedApp
@@ -66,6 +69,44 @@ export default function App() {
     [openConfigPath, setGlobalError]
   )
 
+  // Stable handlers so memoized rows / panels are not re-rendered by every poll
+  const {
+    startConfig,
+    stopAll,
+    restartAll,
+    startApp,
+    stopApp,
+    restartApp,
+    deleteApp
+  } = pm2
+
+  const handleSelectApp = useCallback((name: string) => {
+    setSelectedApp(name)
+    setLogTab('process')
+  }, [])
+  const handleStartAll = useCallback(() => {
+    if (activeFilePath) void startConfig(activeFilePath)
+  }, [activeFilePath, startConfig])
+  const handleStopAll = useCallback(() => void stopAll(appNames), [appNames, stopAll])
+  const handleRestartAll = useCallback(
+    () => void restartAll(appNames, activeFilePath),
+    [appNames, activeFilePath, restartAll]
+  )
+  const handleStart = useCallback(
+    (name: string) => void startApp(name, activeFilePath),
+    [activeFilePath, startApp]
+  )
+  const handleStop = useCallback((name: string) => void stopApp(name), [stopApp])
+  const handleRestart = useCallback(
+    (name: string) => void restartApp(name, activeFilePath),
+    [activeFilePath, restartApp]
+  )
+  const handleDelete = useCallback((name: string) => void deleteApp(name), [deleteApp])
+  const handleOpenConfig = useCallback(() => void openConfigDialog(), [openConfigDialog])
+  const handleReloadConfig = useCallback(() => void reloadActiveTab(), [reloadActiveTab])
+  const handleInstall = useCallback(() => void checkAndInstall(), [checkAndInstall])
+  const handleRetryEnv = useCallback(() => void refreshEnv(), [refreshEnv])
+
   if (!ready) {
     return (
       <div className="flex h-full items-center justify-center bg-surface text-ink-muted">
@@ -83,12 +124,12 @@ export default function App() {
       }}
       onDrop={handleDrop}
     >
-      <StatusBar env={env} progress={progress} metrics={systemMetrics} />
+      <StatusBar env={env} progress={progress} />
       <EnvBanner
         env={env}
         progress={progress}
-        onInstall={() => void checkAndInstall()}
-        onRetry={() => void refreshEnv()}
+        onInstall={handleInstall}
+        onRetry={handleRetryEnv}
       />
 
       <TabBar
@@ -96,7 +137,7 @@ export default function App() {
         activeTabId={activeTabId}
         onSelect={selectTab}
         onClose={closeTab}
-        onOpen={() => void openConfigDialog()}
+        onOpen={handleOpenConfig}
       />
 
       {(globalError || activeTab?.error) && (
@@ -119,32 +160,22 @@ export default function App() {
           filePath={activeTab?.filePath ?? null}
           busy={pm2.busy}
           selectedApp={effectiveSelected}
-          onSelectApp={(name) => {
-            setSelectedApp(name)
-            setLogTab('process')
-          }}
-          onStartAll={() => {
-            if (activeTab?.filePath) void pm2.startConfig(activeTab.filePath)
-          }}
-          onStopAll={() => void pm2.stopAll(apps.map((a) => a.name))}
-          onRestartAll={() =>
-            void pm2.restartAll(
-              apps.map((a) => a.name),
-              activeTab?.filePath
-            )
-          }
-          onStart={(name) => void pm2.startApp(name, activeTab?.filePath)}
-          onStop={(name) => void pm2.stopApp(name)}
-          onRestart={(name) => void pm2.restartApp(name, activeTab?.filePath)}
-          onDelete={(name) => void pm2.deleteApp(name)}
-          onOpenConfig={() => void openConfigDialog()}
-          onReloadConfig={() => void reloadActiveTab()}
+          onSelectApp={handleSelectApp}
+          onStartAll={handleStartAll}
+          onStopAll={handleStopAll}
+          onRestartAll={handleRestartAll}
+          onStart={handleStart}
+          onStop={handleStop}
+          onRestart={handleRestart}
+          onDelete={handleDelete}
+          onOpenConfig={handleOpenConfig}
+          onReloadConfig={handleReloadConfig}
           reloading={Boolean(activeTab?.loading)}
           error={pm2.error}
         />
         <LogViewer
           configName={activeTab?.fileName ?? null}
-          appNames={apps.map((a) => a.name)}
+          appNames={appNames}
           selectedApp={effectiveSelected}
           height={logHeight}
           activeTab={logTab}

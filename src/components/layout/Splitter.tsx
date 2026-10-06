@@ -6,6 +6,7 @@ interface SplitterProps {
   onBottomHeightChange: (height: number) => void
   minBottom?: number
   maxBottom?: number
+  minTop?: number
   children: [React.ReactNode, React.ReactNode]
 }
 
@@ -13,10 +14,13 @@ export function Splitter({
   bottomHeight,
   onBottomHeightChange,
   minBottom = 120,
-  maxBottom = 480,
+  /** Upper bound in px; the top pane always keeps at least `minTop` */
+  maxBottom = 640,
+  minTop = 160,
   children
 }: SplitterProps) {
   const dragging = useRef(false)
+  const frame = useRef<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
 
@@ -25,16 +29,30 @@ export function Splitter({
       if (!dragging.current || !containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
       const fromBottom = rect.bottom - e.clientY
-      const clamped = Math.min(maxBottom, Math.max(minBottom, fromBottom))
-      onBottomHeightChange(clamped)
+      const upper = Math.max(minBottom, Math.min(maxBottom, rect.height - minTop))
+      const clamped = Math.round(Math.min(upper, Math.max(minBottom, fromBottom)))
+
+      // One layout per frame, however fast the pointer moves
+      if (frame.current != null) cancelAnimationFrame(frame.current)
+      frame.current = requestAnimationFrame(() => {
+        frame.current = null
+        onBottomHeightChange(clamped)
+      })
     },
-    [maxBottom, minBottom, onBottomHeightChange]
+    [maxBottom, minBottom, minTop, onBottomHeightChange]
   )
 
   const stopDrag = useCallback(() => {
     dragging.current = false
     setIsDragging(false)
   }, [])
+
+  useEffect(
+    () => () => {
+      if (frame.current != null) cancelAnimationFrame(frame.current)
+    },
+    []
+  )
 
   useEffect(() => {
     window.addEventListener('pointermove', onPointerMove)

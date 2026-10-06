@@ -14,7 +14,7 @@
 | **Processes** | Start / Stop / Restart / Delete — all apps or one by one |
 | **Metrics** | Status, CPU, RAM, uptime, restarts (poll every 2s) |
 | **Logs** | Config-wide stream + per-process tab; stdout / stderr / search / autoscroll |
-| **Host load** | Compact CPU · GPU · RAM sparklines in the header |
+| **Host load** | CPU · RAM · GPU · VRAM sparklines in the header; click for larger 60 s charts (VRAM via `nvidia-smi`, Windows counters as fallback) |
 | **Env setup** | Detects Node / npm / PM2; can install via WinGet + `npm i -g pm2` |
 | **Installer** | Classic NSIS wizard with custom path and product folder |
 

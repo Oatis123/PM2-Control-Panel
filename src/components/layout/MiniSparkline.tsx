@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 interface MiniSparklineProps {
   values: number[]
   width?: number
@@ -9,12 +11,7 @@ interface MiniSparklineProps {
 /**
  * Compact monochrome sparkline for header load monitors.
  */
-export function MiniSparkline({
-  values,
-  width = 56,
-  height = 18,
-  max = 100
-}: MiniSparklineProps) {
+function MiniSparklineImpl({ values, width = 56, height = 18, max = 100 }: MiniSparklineProps) {
   if (values.length < 2) {
     return (
       <svg width={width} height={height} className="block shrink-0 opacity-40" aria-hidden>
@@ -34,23 +31,15 @@ export function MiniSparkline({
   const pad = 1
   const w = width - pad * 2
   const h = height - pad * 2
-  const points = values.map((v, i) => {
-    const x = pad + (i / (values.length - 1)) * w
-    const clamped = Math.min(max, Math.max(0, v))
-    const y = pad + h - (clamped / max) * h
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  })
+  const yFor = (v: number): number => pad + h - (Math.min(max, Math.max(0, v)) / max) * h
 
-  const last = values[values.length - 1] ?? 0
-  const lastX = pad + w
-  const lastY = pad + h - (Math.min(max, Math.max(0, last)) / max) * h
+  const points = values.map(
+    (v, i) => `${(pad + (i / (values.length - 1)) * w).toFixed(1)},${yFor(v).toFixed(1)}`
+  )
+  const lastY = yFor(values[values.length - 1] ?? 0)
 
   // Area path under the line
-  const area = [
-    `${pad},${pad + h}`,
-    ...points,
-    `${pad + w},${pad + h}`
-  ].join(' ')
+  const area = `${pad},${pad + h} ${points.join(' ')} ${pad + w},${pad + h}`
 
   return (
     <svg
@@ -70,7 +59,9 @@ export function MiniSparkline({
         strokeLinecap="round"
         opacity="0.85"
       />
-      <circle cx={lastX} cy={lastY} r="1.6" fill="currentColor" />
+      <circle cx={pad + w} cy={lastY} r="1.6" fill="currentColor" />
     </svg>
   )
 }
+
+export const MiniSparkline = memo(MiniSparklineImpl)

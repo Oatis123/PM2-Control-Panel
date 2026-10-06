@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Eraser,
   FileStack,
@@ -9,7 +9,12 @@ import {
 } from 'lucide-react'
 import type { LogLine, LogStreamType } from '../../../shared/types'
 
-const MAX_LINES = 5000
+/** Lines kept in memory (search runs over all of them) */
+const MAX_LINES = 3000
+/** Lines actually rendered — keeps the DOM small while logs stream */
+const RENDER_CAP = 1000
+
+const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'medium' })
 
 export type LogPanelTab = 'config' | 'process'
 
@@ -26,7 +31,7 @@ interface LogViewerProps {
   onTabChange: (tab: LogPanelTab) => void
 }
 
-export function LogViewer({
+function LogViewerImpl({
   configName,
   appNames,
   selectedApp,
@@ -65,14 +70,12 @@ export function LogViewer({
       return
     }
 
-    const unsubLine = window.api.pm2.onLogLine((line) => {
-      if (cancelled) return
+    // Main process sends batches (~60 ms) — one state update per batch
+    const unsubLine = window.api.pm2.onLogLines((batch) => {
+      if (cancelled || batch.length === 0) return
       setLines((prev) => {
-        const next = [...prev, line]
-        if (next.length > MAX_LINES) {
-          return next.slice(next.length - MAX_LINES)
-        }
-        return next
+        const next = prev.concat(batch)
+        return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next
       })
     })
 
@@ -130,10 +133,15 @@ export function LogViewer({
     })
   }, [lines, filter, query])
 
-  useEffect(() => {
+  const rendered = useMemo(
+    () => (visible.length > RENDER_CAP ? visible.slice(visible.length - RENDER_CAP) : visible),
+    [visible]
+  )
+
+  useLayoutEffect(() => {
     if (!autoScroll || !containerRef.current) return
     containerRef.current.scrollTop = containerRef.current.scrollHeight
-  }, [visible, autoScroll])
+  }, [rendered, autoScroll])
 
   const handleScroll = (): void => {
     const el = containerRef.current
@@ -297,35 +305,47 @@ export function LogViewer({
         {!canShowLines(hasConfig, activeTab, selectedApp) || visible.length === 0 ? (
           <p className="text-ink-muted">{emptyHint}</p>
         ) : (
-          visible.map((line) => (
-            <div
-              key={line.id}
-              className={
-                line.type === 'err'
-                  ? 'text-ink'
-                  : line.type === 'system'
-                    ? 'text-ink-muted italic'
-                    : 'text-ink'
-              }
-            >
-              <span className="mr-2 text-ink-faint">
-                {new Date(line.timestamp).toLocaleTimeString()}
-              </span>
-              {activeTab === 'config' && line.type !== 'system' && (
-                <span className="mr-1.5 text-ink-muted">[{line.appName}]</span>
-              )}
-              {line.type === 'err' && <span className="mr-1 text-ink-muted">[err]</span>}
-              {line.type === 'out' && filter === 'all' && activeTab === 'process' && (
-                <span className="mr-1 text-ink-faint">[out]</span>
-              )}
-              {line.text}
-            </div>
-          ))
+          <>
+            {visible.length > rendered.length && (
+              <p className="mb-1 text-ink-faint italic">
+                … {visible.length - rendered.length} older lines hidden (showing last{' '}
+                {RENDER_CAP})
+              </p>
+            )}
+            {rendered.map((line) => (
+              <LogRow
+                key={line.id}
+                line={line}
+                showApp={activeTab === 'config'}
+                showOut={filter === 'all' && activeTab === 'process'}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>
   )
 }
+
+interface LogRowProps {
+  line: LogLine
+  showApp: boolean
+  showOut: boolean
+}
+
+const LogRow = memo(function LogRow({ line, showApp, showOut }: LogRowProps) {
+  return (
+    <div className={line.type === 'system' ? 'text-ink-muted italic' : 'text-ink'}>
+      <span className="mr-2 text-ink-faint">{timeFormat.format(line.timestamp)}</span>
+      {showApp && line.type !== 'system' && (
+        <span className="mr-1.5 text-ink-muted">[{line.appName}]</span>
+      )}
+      {line.type === 'err' && <span className="mr-1 text-ink-muted">[err]</span>}
+      {line.type === 'out' && showOut && <span className="mr-1 text-ink-faint">[out]</span>}
+      {line.text}
+    </div>
+  )
+})
 
 function canShowLines(
   hasConfig: boolean,
@@ -336,3 +356,5 @@ function canShowLines(
   if (activeTab === 'process' && !selectedApp) return false
   return true
 }
+
+export const LogViewer = memo(LogViewerImpl)

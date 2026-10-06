@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { FileCode2, Plus, X } from 'lucide-react'
 import type { TabData } from '../../hooks/useSessionTabs'
 
@@ -9,7 +10,7 @@ interface TabBarProps {
   onOpen: () => void
 }
 
-export function TabBar({ tabs, activeTabId, onSelect, onClose, onOpen }: TabBarProps) {
+function TabBarImpl({ tabs, activeTabId, onSelect, onClose, onOpen }: TabBarProps) {
   return (
     <div className="flex h-10 shrink-0 items-stretch border-b border-surface-border bg-surface-raised">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
@@ -61,3 +62,5 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onOpen }: TabBarP
     </div>
   )
 }
+
+export const TabBar = memo(TabBarImpl)

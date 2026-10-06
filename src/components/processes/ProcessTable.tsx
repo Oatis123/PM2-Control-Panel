@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import {
   FolderOpen,
   Play,
@@ -31,10 +32,7 @@ interface ProcessTableProps {
   error?: string | null
 }
 
-function mergeRows(
-  apps: EcosystemApp[],
-  processes: ProcessMetrics[]
-): Array<{
+interface Row {
   name: string
   script?: string
   status: ProcessStatus
@@ -42,13 +40,12 @@ function mergeRows(
   memoryMb: number
   uptimeMs: number | null
   restarts: number
-  inPm2: boolean
-}> {
-  const byName = new Map(processes.map((p) => [p.name, p]))
-  const names = new Set<string>()
+}
 
-  const rows = apps.map((app) => {
-    names.add(app.name)
+function mergeRows(apps: EcosystemApp[], processes: ProcessMetrics[]): Row[] {
+  const byName = new Map(processes.map((p) => [p.name, p]))
+
+  return apps.map((app) => {
     const runtime = byName.get(app.name)
     return {
       name: app.name,
@@ -57,14 +54,127 @@ function mergeRows(
       cpu: runtime?.cpu ?? 0,
       memoryMb: runtime?.memoryMb ?? 0,
       uptimeMs: runtime?.uptimeMs ?? null,
-      restarts: runtime?.restarts ?? 0,
-      inPm2: Boolean(runtime)
+      restarts: runtime?.restarts ?? 0
     }
   })
-
-  // Optionally show PM2 processes not in config? Spec says list apps from config — keep config-only.
-  return rows
 }
+
+interface ProcessRowProps {
+  row: Row
+  selected: boolean
+  busy: boolean
+  onSelectApp: (name: string) => void
+  onStart: (name: string) => void
+  onStop: (name: string) => void
+  onRestart: (name: string) => void
+  onDelete: (name: string) => void
+}
+
+function rowPropsEqual(prev: ProcessRowProps, next: ProcessRowProps): boolean {
+  const a = prev.row
+  const b = next.row
+  return (
+    prev.selected === next.selected &&
+    prev.busy === next.busy &&
+    prev.onSelectApp === next.onSelectApp &&
+    prev.onStart === next.onStart &&
+    prev.onStop === next.onStop &&
+    prev.onRestart === next.onRestart &&
+    prev.onDelete === next.onDelete &&
+    a.name === b.name &&
+    a.script === b.script &&
+    a.status === b.status &&
+    a.cpu === b.cpu &&
+    a.memoryMb === b.memoryMb &&
+    a.uptimeMs === b.uptimeMs &&
+    a.restarts === b.restarts
+  )
+}
+
+const ProcessRow = memo(function ProcessRow({
+  row,
+  selected,
+  busy,
+  onSelectApp,
+  onStart,
+  onStop,
+  onRestart,
+  onDelete
+}: ProcessRowProps) {
+  return (
+    <tr
+      className={`cursor-pointer border-t border-surface-border transition-colors ${
+        selected ? 'bg-surface-panel' : 'hover:bg-surface-raised'
+      }`}
+      onClick={() => onSelectApp(row.name)}
+    >
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2">
+          <StatusDot status={row.status} />
+          <span className="text-xs capitalize text-ink-muted">{row.status}</span>
+        </div>
+      </td>
+      <td className="px-3 py-2 font-medium text-ink">{row.name}</td>
+      <td
+        className="max-w-[200px] truncate px-3 py-2 font-mono text-xs text-ink-muted"
+        title={row.script}
+      >
+        {row.script ?? '—'}
+      </td>
+      <td className="px-3 py-2 font-mono text-xs">{formatCpu(row.cpu)}</td>
+      <td className="px-3 py-2 font-mono text-xs">{formatMemory(row.memoryMb)}</td>
+      <td className="px-3 py-2 font-mono text-xs">{formatUptime(row.uptimeMs)}</td>
+      <td className="px-3 py-2 font-mono text-xs">{row.restarts}</td>
+      <td className="px-3 py-2">
+        <div
+          className="flex items-center justify-end gap-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="btn-icon"
+            disabled={busy || row.status === 'online'}
+            onClick={() => onStart(row.name)}
+            title="Start"
+          >
+            <Play className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className="btn-icon"
+            disabled={busy || row.status === 'stopped'}
+            onClick={() => onStop(row.name)}
+            title="Stop"
+          >
+            <Square className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className="btn-icon"
+            disabled={busy}
+            onClick={() => onRestart(row.name)}
+            title="Restart"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className="btn-icon"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`Delete process "${row.name}" from PM2?`)) {
+                onDelete(row.name)
+              }
+            }}
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
+}, rowPropsEqual)
 
 export function ProcessTable({
   apps,
@@ -86,6 +196,8 @@ export function ProcessTable({
   emptyHint,
   error
 }: ProcessTableProps) {
+  const rows = useMemo(() => mergeRows(apps, processes), [apps, processes])
+
   if (!filePath) {
     return (
       <div
@@ -109,7 +221,6 @@ export function ProcessTable({
     )
   }
 
-  const rows = mergeRows(apps, processes)
   const names = apps.map((a) => a.name)
 
   return (
@@ -186,80 +297,19 @@ export function ProcessTable({
                 </td>
               </tr>
             ) : (
-              rows.map((row) => {
-                const selected = selectedApp === row.name
-                return (
-                  <tr
-                    key={row.name}
-                    className={`cursor-pointer border-t border-surface-border transition-colors ${
-                      selected ? 'bg-surface-panel' : 'hover:bg-surface-raised'
-                    }`}
-                    onClick={() => onSelectApp(row.name)}
-                  >
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <StatusDot status={row.status} />
-                        <span className="text-xs capitalize text-ink-muted">{row.status}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 font-medium text-ink">{row.name}</td>
-                    <td className="max-w-[200px] truncate px-3 py-2 font-mono text-xs text-ink-muted">
-                      {row.script ?? '—'}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">{formatCpu(row.cpu)}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{formatMemory(row.memoryMb)}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{formatUptime(row.uptimeMs)}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{row.restarts}</td>
-                    <td className="px-3 py-2">
-                      <div
-                        className="flex items-center justify-end gap-0.5"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          disabled={busy || row.status === 'online'}
-                          onClick={() => onStart(row.name)}
-                          title="Start"
-                        >
-                          <Play className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          disabled={busy || row.status === 'stopped'}
-                          onClick={() => onStop(row.name)}
-                          title="Stop"
-                        >
-                          <Square className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          disabled={busy}
-                          onClick={() => onRestart(row.name)}
-                          title="Restart"
-                        >
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          disabled={busy}
-                          onClick={() => {
-                            if (window.confirm(`Delete process "${row.name}" from PM2?`)) {
-                              onDelete(row.name)
-                            }
-                          }}
-                          title="Delete"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })
+              rows.map((row) => (
+                <ProcessRow
+                  key={row.name}
+                  row={row}
+                  selected={selectedApp === row.name}
+                  busy={busy}
+                  onSelectApp={onSelectApp}
+                  onStart={onStart}
+                  onStop={onStop}
+                  onRestart={onRestart}
+                  onDelete={onDelete}
+                />
+              ))
             )}
           </tbody>
         </table>

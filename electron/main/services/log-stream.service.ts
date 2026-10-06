@@ -11,6 +11,9 @@ import { ensurePathInitialized } from './path.util'
 const MAX_BUFFER_CHARS = 64_000
 const POLL_MS = 400
 const INITIAL_TAIL_BYTES = 48_768
+/** Lines are sent to the renderer in batches to keep IPC and React updates cheap */
+const FLUSH_MS = 60
+const MAX_BATCH = 500
 
 interface ActiveStream {
   mode: 'app' | 'config'
@@ -24,7 +27,13 @@ interface ActiveStream {
   pollTimer: ReturnType<typeof setInterval> | null
   filePositions: Map<string, number>
   fileMeta: Map<string, { app: string; kind: 'out' | 'err' }>
+  /** Files with a read in flight — reads of one file must never overlap */
+  reading: Set<string>
+  /** Files that changed while a read was in flight */
+  rereadPending: Set<string>
   lineSeq: number
+  pending: LogLine[]
+  flushTimer: ReturnType<typeof setTimeout> | null
   killed: boolean
 }
 
@@ -59,7 +68,24 @@ function emitLine(
     timestamp: partial.timestamp ?? Date.now()
   }
 
-  stream.webContents.send(IpcChannels.PM2_LOG_LINE, line)
+  stream.pending.push(line)
+  if (stream.pending.length >= MAX_BATCH) {
+    flushPending(stream)
+  } else if (!stream.flushTimer) {
+    stream.flushTimer = setTimeout(() => flushPending(stream), FLUSH_MS)
+  }
+}
+
+function flushPending(stream: ActiveStream): void {
+  if (stream.flushTimer) {
+    clearTimeout(stream.flushTimer)
+    stream.flushTimer = null
+  }
+  if (stream.pending.length === 0) return
+  const lines = stream.pending
+  stream.pending = []
+  if (stream.killed || stream.webContents.isDestroyed()) return
+  stream.webContents.send(IpcChannels.PM2_LOG_LINES, lines)
 }
 
 function emitSystem(stream: ActiveStream, text: string): void {
@@ -139,8 +165,24 @@ function findLogFiles(appName: string): { out: string[]; err: string[] } {
 }
 
 function readNewBytes(stream: ActiveStream, filePath: string): void {
+  if (stream.killed) return
+
+  // fs.watch events and the poll timer fire independently. If two reads of the
+  // same file overlap they both start from the same offset and every line is
+  // emitted twice, so serialize per file and re-read once the current one ends.
+  if (stream.reading.has(filePath)) {
+    stream.rereadPending.add(filePath)
+    return
+  }
+
+  const finish = (): void => {
+    stream.reading.delete(filePath)
+    if (stream.killed) return
+    if (stream.rereadPending.delete(filePath)) readNewBytes(stream, filePath)
+  }
+
   try {
-    if (stream.killed || !existsSync(filePath)) return
+    if (!existsSync(filePath)) return
     const meta = stream.fileMeta.get(filePath)
     if (!meta) return
 
@@ -154,6 +196,8 @@ function readNewBytes(stream: ActiveStream, filePath: string): void {
     // Cap single read to avoid huge spikes
     const maxChunk = 256 * 1024
     const end = Math.min(size - 1, start + maxChunk - 1)
+
+    stream.reading.add(filePath)
 
     const rs = createReadStream(filePath, {
       start,
@@ -169,31 +213,33 @@ function readNewBytes(stream: ActiveStream, filePath: string): void {
     rs.on('end', () => {
       // Only advance after successful read
       stream.filePositions.set(filePath, end + 1)
-      if (stream.killed) return
 
-      const lines = buf.split(/\r?\n/)
-      if (lines.length && lines[lines.length - 1] === '') lines.pop()
+      if (!stream.killed) {
+        const lines = buf.split(/\r?\n/)
+        if (lines.length && lines[lines.length - 1] === '') lines.pop()
 
-      for (const line of lines) {
-        const text = cleanLine(line)
-        if (!text) continue
-        emitLine(stream, {
-          appName: meta.app,
-          type: meta.kind,
-          text
-        })
+        for (const line of lines) {
+          const text = cleanLine(line)
+          if (!text) continue
+          emitLine(stream, {
+            appName: meta.app,
+            type: meta.kind,
+            text
+          })
+        }
+
+        // If we didn't catch up to EOF (capped chunk), continue immediately
+        if (end + 1 < size) stream.rereadPending.add(filePath)
       }
 
-      // If we didn't catch up to EOF (capped chunk), schedule immediate continue
-      if (end + 1 < size && !stream.killed) {
-        readNewBytes(stream, filePath)
-      }
+      finish()
     })
     rs.on('error', () => {
       // leave position unchanged so next poll retries
+      finish()
     })
   } catch {
-    // ignore
+    stream.reading.delete(filePath)
   }
 }
 
@@ -222,12 +268,15 @@ function pollAllFiles(stream: ActiveStream): void {
  * Safe when switching tabs — no child process / taskkill involved.
  */
 function startFileTail(stream: ActiveStream, appNames: string[]): boolean {
-  const targets =
-    appNames.length > 0
-      ? appNames
-      : stream.mode === 'app'
-        ? [stream.label]
-        : []
+  const targets = Array.from(
+    new Set(
+      appNames.length > 0
+        ? appNames
+        : stream.mode === 'app'
+          ? [stream.label]
+          : []
+    )
+  )
 
   if (targets.length === 0) return false
 
@@ -238,16 +287,17 @@ function startFileTail(stream: ActiveStream, appNames: string[]): boolean {
     const { out, err } = findLogFiles(app)
     totalOut += out.length
     totalErr += err.length
-    const all = [...out, ...err]
+    // Skip files already tailed (overlapping app-name patterns, duplicate names)
+    const all = [...out, ...err].filter((f) => !stream.fileMeta.has(f))
     if (all.length === 0) continue
 
     seedFilePositions(stream, all)
 
     for (const f of out) {
-      stream.fileMeta.set(f, { app, kind: 'out' })
+      if (all.includes(f)) stream.fileMeta.set(f, { app, kind: 'out' })
     }
     for (const f of err) {
-      stream.fileMeta.set(f, { app, kind: 'err' })
+      if (all.includes(f)) stream.fileMeta.set(f, { app, kind: 'err' })
     }
 
     // Initial historical tail
@@ -258,11 +308,10 @@ function startFileTail(stream: ActiveStream, appNames: string[]): boolean {
     // Watch for changes + polling fallback (more reliable on Windows)
     for (const file of all) {
       try {
-        const watcher = watch(file, { persistent: true }, (event) => {
+        const watcher = watch(file, { persistent: true }, () => {
           if (stream.killed) return
-          if (event === 'rename') {
-            stream.filePositions.set(file, 0)
-          }
+          // Truncation/rotation is detected in readNewBytes via size < position;
+          // resetting to 0 here would replay the whole file.
           readNewBytes(stream, file)
         })
         stream.watchers.push(watcher)
@@ -307,6 +356,13 @@ function stopStream(stream: ActiveStream): void {
   stream.watchers = []
   stream.filePositions.clear()
   stream.fileMeta.clear()
+  stream.reading.clear()
+  stream.rereadPending.clear()
+  stream.pending = []
+  if (stream.flushTimer) {
+    clearTimeout(stream.flushTimer)
+    stream.flushTimer = null
+  }
 }
 
 export async function subscribeLogs(
@@ -337,7 +393,11 @@ export async function subscribeLogs(
       pollTimer: null,
       filePositions: new Map(),
       fileMeta: new Map(),
+      reading: new Set(),
+      rereadPending: new Set(),
       lineSeq: 0,
+      pending: [],
+      flushTimer: null,
       killed: false
     }
     active = stream
@@ -368,7 +428,11 @@ export async function subscribeLogs(
     pollTimer: null,
     filePositions: new Map(),
     fileMeta: new Map(),
+    reading: new Set(),
+    rereadPending: new Set(),
     lineSeq: 0,
+    pending: [],
+    flushTimer: null,
     killed: false
   }
   active = stream
