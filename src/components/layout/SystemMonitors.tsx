@@ -4,6 +4,8 @@ import { MetricChart } from './MetricChart'
 import { MiniSparkline } from './MiniSparkline'
 
 const CHART_CAPACITY = 60
+/** Load at or above this reads as "look at this" */
+const HOT = 90
 
 function formatPct(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return '—'
@@ -12,20 +14,15 @@ function formatPct(value: number | null): string {
 
 function MetricChip({ name, series }: { name: string; series: MetricSeries }) {
   const unavailable = series.current == null
+  const hot = series.current != null && series.current >= HOT
   return (
-    <div
-      className={`flex items-center gap-1.5 rounded border border-surface-border bg-surface px-1.5 py-0.5 ${
-        unavailable ? 'opacity-60' : ''
-      }`}
-    >
-      <span className="w-8 text-[10px] font-medium uppercase tracking-wide text-ink-muted">
-        {name}
-      </span>
+    <span className={`flex items-center gap-2 ${unavailable ? 'text-dim' : ''}`}>
+      <span className="w-[4ch] text-left text-muted">{name}</span>
       <MiniSparkline values={series.history} />
-      <span className="w-8 text-right font-mono text-[11px] tabular-nums text-ink">
+      <span className={`w-[4ch] text-right ${hot ? 'text-ochre' : ''}`}>
         {formatPct(series.current)}
       </span>
-    </div>
+    </span>
   )
 }
 
@@ -53,24 +50,26 @@ function DetailCard({
 }) {
   const s = stats(series.history)
   return (
-    <div className="rounded border border-surface-border bg-surface p-2">
-      <div className="mb-1 flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-ink">{title}</span>
-        <span className="truncate text-[10px] text-ink-muted" title={subtitle ?? undefined}>
+    <div className="min-w-0">
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <span>{title}</span>
+        <span className="meta truncate" title={subtitle ?? undefined}>
           {subtitle}
         </span>
       </div>
       {series.current == null ? (
-        <p className="py-4 text-center text-[11px] text-ink-muted">
-          {unavailableHint ?? 'Unavailable'}
+        <p className="serif py-4 text-[13px] leading-snug text-muted">
+          {unavailableHint ?? 'Unavailable.'}
         </p>
       ) : (
         <>
           <MetricChart values={series.history} capacity={CHART_CAPACITY} />
-          <div className="mt-1 flex justify-between font-mono text-[10px] tabular-nums text-ink-muted">
-            <span>now {series.current.toFixed(0)}%</span>
+          <div className="meta mt-1.5 flex justify-between">
+            <span>
+              now <span className="text-moss">{series.current.toFixed(0)}%</span>
+            </span>
             <span>avg {s ? s.avg.toFixed(0) : '—'}%</span>
-            <span>max {s ? s.max.toFixed(0) : '—'}%</span>
+            <span>peak {s ? s.max.toFixed(0) : '—'}%</span>
           </div>
         </>
       )}
@@ -115,43 +114,41 @@ export function SystemMonitors() {
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        className={`flex items-center gap-1.5 rounded p-0.5 transition-colors hover:bg-surface-panel ${
-          open ? 'bg-surface-panel' : ''
+        className={`flex items-center gap-5 py-1 hover:text-text ${
+          open ? 'shadow-[inset_0_-1px_0_var(--moss)]' : ''
         }`}
         onClick={() => setOpen((v) => !v)}
         title={`${tip}\n\nClick for detailed charts`}
         aria-expanded={open}
         aria-haspopup="dialog"
       >
-        <MetricChip name="CPU" series={cpu} />
-        <MetricChip name="RAM" series={ram} />
-        <MetricChip name="GPU" series={gpu} />
-        <MetricChip name="VRAM" series={vram} />
+        <MetricChip name="cpu" series={cpu} />
+        <MetricChip name="ram" series={ram} />
+        <MetricChip name="gpu" series={gpu} />
+        <MetricChip name="vram" series={vram} />
       </button>
 
       {open && (
         <div
           role="dialog"
           aria-label="System monitors"
-          className="panel absolute left-0 top-full z-30 mt-1.5 grid w-[500px] grid-cols-2 gap-2 rounded-lg p-2 shadow-xl shadow-black/50"
+          className="absolute left-0 top-full z-30 mt-2 grid w-[520px] grid-cols-2 gap-x-6 gap-y-5 border border-dim bg-surface p-4"
         >
-          <DetailCard title="CPU" series={cpu} />
-          <DetailCard title="RAM" subtitle={ram.detail} series={ram} />
+          <DetailCard title="cpu" series={cpu} />
+          <DetailCard title="ram" subtitle={ram.detail} series={ram} />
           <DetailCard
-            title="GPU"
+            title="gpu"
             subtitle={gpuName}
             series={gpu}
-            unavailableHint="GPU utilization unavailable (install NVIDIA drivers / nvidia-smi)"
+            unavailableHint="GPU utilization is unavailable. Install the NVIDIA drivers (nvidia-smi)."
           />
           <DetailCard
-            title="VRAM"
+            title="vram"
             subtitle={vram.detail}
             series={vram}
-            unavailableHint="Video memory usage unavailable"
+            unavailableHint="Video memory usage is unavailable."
           />
-          <p className="col-span-2 text-center text-[10px] text-ink-faint">
-            Last {CHART_CAPACITY}s · updates every second
-          </p>
+          <p className="meta col-span-2 text-dim">last {CHART_CAPACITY}s · updates every second</p>
         </div>
       )}
     </div>

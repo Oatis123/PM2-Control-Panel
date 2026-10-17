@@ -1,13 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import {
-  Eraser,
-  FileStack,
-  Pause,
-  Play,
-  Search,
-  Terminal
-} from 'lucide-react'
 import type { LogLine, LogStreamType } from '../../../shared/types'
+import { PixelIcon } from '../PixelIcon'
 
 /** Lines kept in memory (search runs over all of them) */
 const MAX_LINES = 3000
@@ -190,126 +183,112 @@ function LogViewerImpl({
   }
 
   const emptyHint = !hasConfig
-    ? 'Open a config to view logs'
+    ? 'Open a config to see its logs.'
     : activeTab === 'process' && !selectedApp
-      ? 'Select a process to view its logs'
-      : streamError ?? 'Waiting for log lines...'
+      ? 'Select a process to see its logs.'
+      : streamError ?? 'Waiting for the first log line.'
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col border-t border-surface-border bg-surface"
-      style={{ height }}
-    >
+    <div className="flex h-full min-h-0 flex-col bg-bg" style={{ height }}>
       {/* Log source tabs */}
-      <div className="flex h-8 shrink-0 items-stretch border-b border-surface-border bg-surface-raised">
-        <button
-          type="button"
-          className={`flex items-center gap-1.5 border-r border-surface-border px-3 text-xs ${
-            activeTab === 'config'
-              ? 'border-b-2 border-b-white bg-surface text-ink'
-              : 'border-b-2 border-b-transparent text-ink-muted hover:bg-surface-panel hover:text-ink'
-          }`}
-          onClick={() => onTabChange('config')}
-          title="Merged logs for all processes in this config"
-        >
-          <FileStack className="h-3.5 w-3.5 shrink-0" />
-          <span className="max-w-[140px] truncate">
-            {configName ? `Config · ${configName}` : 'Config'}
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`flex items-center gap-1.5 border-r border-surface-border px-3 text-xs ${
-            activeTab === 'process'
-              ? 'border-b-2 border-b-white bg-surface text-ink'
-              : 'border-b-2 border-b-transparent text-ink-muted hover:bg-surface-panel hover:text-ink'
-          }`}
-          onClick={() => onTabChange('process')}
-          title={selectedApp ? `Logs for ${selectedApp}` : 'Process logs'}
-          disabled={!selectedApp && !hasConfig}
-        >
-          <Terminal className="h-3.5 w-3.5 shrink-0" />
-          <span className="max-w-[140px] truncate">
-            {selectedApp ? selectedApp : 'Process'}
-          </span>
-        </button>
-
-        <div className="ml-auto flex items-center gap-1.5 px-2">
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              connected ? 'bg-white' : 'border border-ink-muted'
-            }`}
-            title={connected ? 'Stream connected' : streamError ?? 'Idle'}
-          />
+      <div className="flex h-9 shrink-0 items-center justify-between gap-4 border-b border-line px-4">
+        <div className="tabs min-w-0">
+          <button
+            type="button"
+            className={`tab ${activeTab === 'config' ? 'on' : ''}`}
+            onClick={() => onTabChange('config')}
+            title="Merged logs for all processes in this config"
+          >
+            <PixelIcon name="note" />
+            <span className="max-w-[160px] truncate">
+              {configName ? `config · ${configName}` : 'config'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`tab ${activeTab === 'process' ? 'on' : ''}`}
+            onClick={() => onTabChange('process')}
+            title={selectedApp ? `Logs for ${selectedApp}` : 'Process logs'}
+            disabled={!selectedApp && !hasConfig}
+          >
+            <PixelIcon name="terminal" />
+            <span className="max-w-[160px] truncate">{selectedApp ? selectedApp : 'process'}</span>
+          </button>
         </div>
+
+        <span
+          className={connected ? 'text-ochre' : streamError ? 'text-ochre' : 'text-dim'}
+          title={connected ? 'Stream connected' : streamError ?? 'Idle'}
+        >
+          {connected ? '● live' : streamError ? '× failed' : '○ idle'}
+        </span>
       </div>
 
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-surface-border px-3 py-1.5">
-        <div className="flex rounded border border-surface-border">
+      <div className="flex shrink-0 items-center gap-5 border-b border-line px-4 py-2">
+        <div className="toggle">
           {(['all', 'out', 'err'] as LogStreamType[]).map((type) => (
             <button
               key={type}
               type="button"
-              className={`px-2 py-0.5 text-xs capitalize ${
-                filter === type
-                  ? 'bg-white text-black'
-                  : 'text-ink-muted hover:bg-surface-panel hover:text-ink'
-              }`}
+              aria-pressed={filter === type}
               onClick={() => setFilter(type)}
             >
-              {type === 'out' ? 'stdout' : type === 'err' ? 'stderr' : 'All'}
+              {type === 'out' ? 'stdout' : type === 'err' ? 'stderr' : 'all'}
             </button>
           ))}
         </div>
 
-        <div className="relative ml-1 max-w-xs flex-1">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-ink-muted" />
+        <div className="relative max-w-xs flex-1">
+          <PixelIcon
+            name="search"
+            className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-muted"
+          />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={
-              activeTab === 'config' ? 'Filter by text or app...' : 'Filter logs...'
-            }
-            className="w-full rounded border border-surface-border bg-surface-raised py-1 pl-7 pr-2 text-xs text-ink placeholder:text-ink-faint focus:border-white focus:outline-none"
+            placeholder={activeTab === 'config' ? 'filter by text or app' : 'filter logs'}
+            className="field pl-5"
           />
         </div>
 
-        <button
-          type="button"
-          className="btn-icon"
-          onClick={() => setAutoScroll((v) => !v)}
-          title={autoScroll ? 'Pause auto-scroll' : 'Resume auto-scroll'}
-        >
-          {autoScroll ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-        </button>
-        <button type="button" className="btn-icon" onClick={clearView} title="Clear view">
-          <Eraser className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className="btn text-xs"
-          disabled={activeTab === 'process' ? !selectedApp : appNames.length === 0}
-          onClick={() => void flush()}
-        >
-          Flush
-        </button>
+        <div className="ml-auto flex items-center gap-5">
+          <button
+            type="button"
+            className="btn-text"
+            onClick={() => setAutoScroll((v) => !v)}
+            title={autoScroll ? 'Pause auto-scroll' : 'Resume auto-scroll'}
+          >
+            follow <span className={autoScroll ? 'text-moss' : 'text-dim'}>{autoScroll ? 'on' : 'off'}</span>
+          </button>
+          <button type="button" className="btn-text" onClick={clearView} title="Clear view">
+            clear
+          </button>
+          <button
+            type="button"
+            className="btn-danger"
+            disabled={activeTab === 'process' ? !selectedApp : appNames.length === 0}
+            onClick={() => void flush()}
+            title="Flush PM2 log files"
+          >
+            flush
+          </button>
+        </div>
       </div>
 
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 select-text overflow-auto bg-surface px-3 py-2 font-mono text-xs leading-relaxed"
+        className="min-h-0 flex-1 select-text overflow-auto bg-surface px-4 py-2 font-code text-[12px] leading-relaxed"
       >
         {!canShowLines(hasConfig, activeTab, selectedApp) || visible.length === 0 ? (
-          <p className="text-ink-muted">{emptyHint}</p>
+          <p className="serif text-[14px] text-muted">{emptyHint}</p>
         ) : (
           <>
             {visible.length > rendered.length && (
-              <p className="mb-1 text-ink-faint italic">
-                … {visible.length - rendered.length} older lines hidden (showing last{' '}
-                {RENDER_CAP})
+              <p className="mb-1 text-dim">
+                … {visible.length - rendered.length} older lines hidden (showing last {RENDER_CAP})
               </p>
             )}
             {rendered.map((line) => (
@@ -335,13 +314,13 @@ interface LogRowProps {
 
 const LogRow = memo(function LogRow({ line, showApp, showOut }: LogRowProps) {
   return (
-    <div className={line.type === 'system' ? 'text-ink-muted italic' : 'text-ink'}>
-      <span className="mr-2 text-ink-faint">{timeFormat.format(line.timestamp)}</span>
+    <div className={line.type === 'system' ? 'text-muted' : 'text-text'}>
+      <span className="mr-2 text-dim">{timeFormat.format(line.timestamp)}</span>
       {showApp && line.type !== 'system' && (
-        <span className="mr-1.5 text-ink-muted">[{line.appName}]</span>
+        <span className="mr-1.5 text-muted">{line.appName}</span>
       )}
-      {line.type === 'err' && <span className="mr-1 text-ink-muted">[err]</span>}
-      {line.type === 'out' && showOut && <span className="mr-1 text-ink-faint">[out]</span>}
+      {line.type === 'err' && <span className="mr-1.5 text-ochre">err</span>}
+      {line.type === 'out' && showOut && <span className="mr-1.5 text-dim">out</span>}
       {line.text}
     </div>
   )

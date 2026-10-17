@@ -17,30 +17,31 @@ export function EnvBanner({ env, progress, onInstall, onRetry }: EnvBannerProps)
   const missingList = env.missing?.length ? env.missing.join(', ') : null
 
   return (
-    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-surface-border bg-surface-panel px-4 py-2">
+    <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-4 py-3">
       <div className="min-w-0">
-        <p className="text-sm text-ink">
+        <p className={`serif text-[14px] leading-snug ${isError ? 'text-ochre' : ''}`}>
           {installing
-            ? 'Installing missing components...'
+            ? 'Installing the missing components.'
             : isError
-              ? 'Environment setup failed'
-              : 'Node.js, npm or PM2 not fully available'}
+              ? 'The environment setup failed.'
+              : 'Node.js, npm or PM2 is not fully available.'}
+          {installing && <span className="typing" />}
         </p>
-        <p className="truncate text-xs text-ink-muted">
+        <p className="meta mt-0.5 truncate">
           {progress ??
             env.message ??
-            (missingList ? `Missing: ${missingList}` : 'Some features may be unavailable')}
+            (missingList ? `missing: ${missingList}` : 'some features may be unavailable')}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-3">
         {onRetry && (
-          <button type="button" className="btn" onClick={onRetry} disabled={installing}>
-            Re-check
+          <button type="button" className="btn btn-ghost" onClick={onRetry} disabled={installing}>
+            re-check
           </button>
         )}
         {!installing && (env.status === 'missing' || env.status === 'error') && (
-          <button type="button" className="btn btn-primary" onClick={onInstall}>
-            {isError ? 'Retry Install' : 'Check / Install'}
+          <button type="button" className="btn" onClick={onInstall}>
+            {isError ? 'retry install' : 'check / install'}
           </button>
         )}
       </div>

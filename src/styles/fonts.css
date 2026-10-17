@@ -1,0 +1,7 @@
+/* oatis-style · self-hosted fonts (OFL, see assets/fonts/OFL.txt) */
+@font-face { font-family: 'Silkscreen'; src: url('../assets/fonts/Silkscreen-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Commissioner'; src: url('../assets/fonts/Commissioner-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Martian Mono'; src: url('../assets/fonts/MartianMono-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('../assets/fonts/JetBrainsMono-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Literata'; src: url('../assets/fonts/Literata-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Literata'; src: url('../assets/fonts/Literata-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }

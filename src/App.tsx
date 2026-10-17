@@ -109,15 +109,15 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div className="flex h-full items-center justify-center bg-surface text-ink-muted">
-        Loading session...
+      <div className="serif flex h-full items-center justify-center gap-3 text-[14px] text-muted">
+        Loading the last session <span className="spin" />
       </div>
     )
   }
 
   return (
     <div
-      className="flex h-full flex-col bg-surface"
+      className="flex h-full flex-col bg-bg"
       onDragOver={(e) => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'copy'
@@ -141,14 +141,10 @@ export default function App() {
       />
 
       {(globalError || activeTab?.error) && (
-        <div className="flex shrink-0 items-center justify-between border-b border-surface-border bg-surface-panel px-4 py-1.5 text-xs text-ink">
-          <span>{globalError ?? activeTab?.error}</span>
-          <button
-            type="button"
-            className="text-ink-muted hover:text-ink"
-            onClick={() => setGlobalError(null)}
-          >
-            Dismiss
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-4 py-2">
+          <span className="serif text-[14px] text-ochre">{globalError ?? activeTab?.error}</span>
+          <button type="button" className="btn-text shrink-0" onClick={() => setGlobalError(null)}>
+            dismiss
           </button>
         </div>
       )}
@@ -171,6 +167,7 @@ export default function App() {
           onOpenConfig={handleOpenConfig}
           onReloadConfig={handleReloadConfig}
           reloading={Boolean(activeTab?.loading)}
+          quietOpen={env.status === 'missing' || env.status === 'error'}
           error={pm2.error}
         />
         <LogViewer

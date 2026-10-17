@@ -8,43 +8,52 @@ interface StatusBarProps {
 }
 
 function versionLabel(value: string | null, prefix: string): string {
-  if (!value) return `${prefix}: —`
-  return `${prefix}: ${value}`
+  return `${prefix} ${value ?? '—'}`
+}
+
+function EnvStatus({ status }: { status: EnvState['status'] }) {
+  switch (status) {
+    case 'ready':
+      return (
+        <span>
+          <span className="text-ochre">●</span> active
+        </span>
+      )
+    case 'installing':
+      return (
+        <span>
+          installing <span className="spin" />
+        </span>
+      )
+    case 'checking':
+      return (
+        <span className="text-muted">
+          checking <span className="spin" />
+        </span>
+      )
+    case 'missing':
+      return <span className="text-ochre">missing deps</span>
+    default:
+      return <span className="text-ochre">error</span>
+  }
 }
 
 function StatusBarImpl({ env, progress }: StatusBarProps) {
-  const statusLabel =
-    env.status === 'ready'
-      ? 'Active'
-      : env.status === 'installing'
-        ? 'Installing'
-        : env.status === 'checking'
-          ? 'Checking'
-          : env.status === 'missing'
-            ? 'Missing deps'
-            : 'Error'
-
   return (
-    <header className="relative z-20 flex h-11 shrink-0 items-center justify-between gap-3 border-b border-surface-border bg-surface-raised px-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="shrink-0 text-sm font-semibold tracking-wide text-ink">
-          PM2 Control Panel
+    <header className="relative z-20 flex h-11 shrink-0 items-center justify-between gap-4 border-b border-line px-4">
+      <div className="flex min-w-0 items-center gap-6">
+        <span className="flex shrink-0 items-baseline gap-2.5">
+          <span className="px text-[14px]">pm2</span>
+          <span className="meta hidden md:inline">control panel</span>
         </span>
         <SystemMonitors />
-        {progress && (
-          <span className="hidden truncate text-xs text-ink-muted xl:inline">{progress}</span>
-        )}
+        {progress && <span className="meta hidden truncate xl:inline">{progress}</span>}
       </div>
-      <div className="flex shrink-0 items-center gap-2 font-mono text-[11px] text-ink-muted sm:gap-3 sm:text-xs">
-        <span className="hidden lg:inline">{versionLabel(env.versions.pm2, 'PM2')}</span>
-        <span className="hidden text-surface-border lg:inline">|</span>
-        <span className="hidden xl:inline">{versionLabel(env.versions.node, 'Node')}</span>
-        <span className="hidden text-surface-border xl:inline">|</span>
-        <span>
-          Status:{' '}
-          <span className={env.status === 'ready' ? 'text-ink' : 'text-ink-muted'}>
-            {statusLabel}
-          </span>
+      <div className="flex shrink-0 items-center gap-4 text-muted">
+        <span className="hidden xl:inline">{versionLabel(env.versions.pm2, 'pm2')}</span>
+        <span className="hidden 2xl:inline">{versionLabel(env.versions.node, 'node')}</span>
+        <span className="text-text">
+          <EnvStatus status={env.status} />
         </span>
       </div>
     </header>

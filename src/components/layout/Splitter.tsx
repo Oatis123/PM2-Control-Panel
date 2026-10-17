@@ -69,8 +69,8 @@ export function Splitter({
       <div
         role="separator"
         aria-orientation="horizontal"
-        className={`group flex h-1.5 shrink-0 cursor-row-resize items-center justify-center bg-surface-raised hover:bg-surface-border ${
-          isDragging ? 'bg-surface-border' : ''
+        className={`grip-wrap flex h-2 shrink-0 cursor-row-resize items-center border-t border-line ${
+          isDragging ? 'active' : ''
         }`}
         onPointerDown={(e) => {
           e.preventDefault()
@@ -78,7 +78,7 @@ export function Splitter({
           setIsDragging(true)
         }}
       >
-        <div className="h-0.5 w-10 rounded bg-ink-faint group-hover:bg-ink-muted" />
+        <div className="grip" />
       </div>
       <div className="shrink-0 overflow-hidden" style={{ height: bottomHeight }}>
         {children[1]}

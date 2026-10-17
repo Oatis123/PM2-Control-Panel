@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useId } from 'react'
 
 interface MetricChartProps {
   values: number[]
@@ -9,10 +9,13 @@ interface MetricChartProps {
 }
 
 /**
- * Larger monochrome area chart (0–100 %) used in the monitors popover.
+ * Larger area chart (0–100 %) used in the monitors popover.
+ * History = muted checker dither under a text-colored line, now = solid moss,
+ * the peak = hollow ochre square. Axes in dim, no gridlines.
  */
 function MetricChartImpl({ values, capacity, width = 232, height = 56 }: MetricChartProps) {
-  const pad = 1
+  const patternId = useId()
+  const pad = 3
   const w = width - pad * 2
   const h = height - pad * 2
   const yFor = (v: number): number => pad + h - (Math.min(100, Math.max(0, v)) / 100) * h
@@ -21,41 +24,67 @@ function MetricChartImpl({ values, capacity, width = 232, height = 56 }: MetricC
 
   const points = values.map((v, i) => `${(x0 + i * step).toFixed(1)},${yFor(v).toFixed(1)}`)
 
+  let peakIdx = -1
+  let peak = 0
+  values.forEach((v, i) => {
+    if (v > peak) {
+      peak = v
+      peakIdx = i
+    }
+  })
+  const lastIdx = values.length - 1
+  const showPeak = peakIdx >= 0 && peakIdx !== lastIdx && peak > 0
+
   return (
     <svg
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
-      className="block text-ink"
+      className="block"
+      shapeRendering="crispEdges"
       aria-hidden
     >
-      {[0, 25, 50, 75, 100].map((tick) => (
-        <line
-          key={tick}
-          x1={pad}
-          x2={pad + w}
-          y1={yFor(tick)}
-          y2={yFor(tick)}
-          stroke="currentColor"
-          strokeWidth="1"
-          strokeDasharray={tick === 0 || tick === 100 ? undefined : '2 3'}
-          opacity={tick === 0 || tick === 100 ? 0.25 : 0.12}
-        />
-      ))}
+      <defs>
+        <pattern id={patternId} width="2" height="2" patternUnits="userSpaceOnUse">
+          <rect x="0" y="0" width="1" height="1" style={{ fill: 'var(--muted)' }} />
+          <rect x="1" y="1" width="1" height="1" style={{ fill: 'var(--muted)' }} />
+        </pattern>
+      </defs>
+
+      {/* axes */}
+      <line x1={pad} x2={pad + w} y1={pad + h} y2={pad + h} style={{ stroke: 'var(--dim)' }} />
+      <line x1={pad} x2={pad} y1={pad} y2={pad + h} style={{ stroke: 'var(--dim)' }} />
+
       {values.length >= 2 && (
         <>
           <polygon
             points={`${x0.toFixed(1)},${pad + h} ${points.join(' ')} ${pad + w},${pad + h}`}
-            fill="currentColor"
-            opacity="0.14"
+            fill={`url(#${patternId})`}
+            opacity="0.55"
           />
           <polyline
             points={points.join(' ')}
             fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-            strokeLinecap="round"
+            strokeWidth="1"
+            style={{ stroke: 'var(--text)' }}
+          />
+          {showPeak && (
+            <rect
+              x={x0 + peakIdx * step - 2.5}
+              y={yFor(peak) - 2.5}
+              width="5"
+              height="5"
+              fill="var(--bg)"
+              strokeWidth="1"
+              style={{ stroke: 'var(--ochre)' }}
+            />
+          )}
+          <rect
+            x={pad + w - 2}
+            y={yFor(values[lastIdx] ?? 0) - 2}
+            width="4"
+            height="4"
+            style={{ fill: 'var(--moss)' }}
           />
         </>
       )}
