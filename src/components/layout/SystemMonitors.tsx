@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSystemMetrics, type MetricSeries } from '../../hooks/useSystemMetrics'
+import { Icon } from '../Icon'
 import { MetricChart } from './MetricChart'
 import { MiniSparkline } from './MiniSparkline'
 
@@ -17,9 +18,9 @@ function MetricChip({ name, series }: { name: string; series: MetricSeries }) {
   const hot = series.current != null && series.current >= HOT
   return (
     <span className={`flex items-center gap-2 ${unavailable ? 'text-dim' : ''}`}>
-      <span className="w-[4ch] text-left text-muted">{name}</span>
+      <span className="text-xs font-semibold text-muted">{name}</span>
       <MiniSparkline values={series.history} />
-      <span className={`w-[4ch] text-right ${hot ? 'text-ochre' : ''}`}>
+      <span className={`w-[4ch] text-right font-code text-xs ${hot ? 'text-ochre' : ''}`}>
         {formatPct(series.current)}
       </span>
     </span>
@@ -51,14 +52,14 @@ function DetailCard({
   const s = stats(series.history)
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <span>{title}</span>
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="font-semibold">{title}</span>
         <span className="meta truncate" title={subtitle ?? undefined}>
           {subtitle}
         </span>
       </div>
       {series.current == null ? (
-        <p className="serif py-4 text-[13px] leading-snug text-muted">
+        <p className="font-serif py-4 text-[13px] leading-snug text-muted">
           {unavailableHint ?? 'Unavailable.'}
         </p>
       ) : (
@@ -66,10 +67,10 @@ function DetailCard({
           <MetricChart values={series.history} capacity={CHART_CAPACITY} />
           <div className="meta mt-1.5 flex justify-between">
             <span>
-              now <span className="text-moss">{series.current.toFixed(0)}%</span>
+              Now <span className="font-code text-moss">{series.current.toFixed(0)}%</span>
             </span>
-            <span>avg {s ? s.avg.toFixed(0) : '—'}%</span>
-            <span>peak {s ? s.max.toFixed(0) : '—'}%</span>
+            <span>Avg <span className="font-code">{s ? `${s.avg.toFixed(0)}%` : '—'}</span></span>
+            <span>Peak <span className="font-code text-ochre">{s ? `${s.max.toFixed(0)}%` : '—'}</span></span>
           </div>
         </>
       )}
@@ -85,6 +86,7 @@ export function SystemMonitors() {
   const { cpu, ram, gpu, vram } = useSystemMetrics()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -92,7 +94,10 @@ export function SystemMonitors() {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
     }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKey)
@@ -113,42 +118,43 @@ export function SystemMonitors() {
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
-        className={`flex items-center gap-5 py-1 hover:text-text ${
-          open ? 'shadow-[inset_0_-1px_0_var(--moss)]' : ''
-        }`}
+        className={`btn btn-ghost btn-sm gap-3 lg:gap-4 ${open ? 'bg-moss-wash' : 'bg-surface'}`}
+        aria-label="System monitors"
         onClick={() => setOpen((v) => !v)}
         title={`${tip}\n\nClick for detailed charts`}
         aria-expanded={open}
         aria-haspopup="dialog"
       >
-        <MetricChip name="cpu" series={cpu} />
-        <MetricChip name="ram" series={ram} />
-        <MetricChip name="gpu" series={gpu} />
-        <MetricChip name="vram" series={vram} />
+        <MetricChip name="CPU" series={cpu} />
+        <MetricChip name="RAM" series={ram} />
+        <MetricChip name="GPU" series={gpu} />
+        <MetricChip name="VRAM" series={vram} />
+        <Icon name="chevron-down" size={14} className={open ? 'rotate-180 text-moss' : 'text-muted'} />
       </button>
 
       {open && (
         <div
           role="dialog"
           aria-label="System monitors"
-          className="absolute left-0 top-full z-30 mt-2 grid w-[520px] grid-cols-2 gap-x-6 gap-y-5 border border-dim bg-surface p-4"
+          className="glass monitor-popover absolute left-0 top-full z-30 mt-2 grid w-[520px] grid-cols-2 gap-x-6 gap-y-5 p-4"
         >
-          <DetailCard title="cpu" series={cpu} />
-          <DetailCard title="ram" subtitle={ram.detail} series={ram} />
+          <DetailCard title="CPU" series={cpu} />
+          <DetailCard title="RAM" subtitle={ram.detail} series={ram} />
           <DetailCard
-            title="gpu"
+            title="GPU"
             subtitle={gpuName}
             series={gpu}
             unavailableHint="GPU utilization is unavailable. Install the NVIDIA drivers (nvidia-smi)."
           />
           <DetailCard
-            title="vram"
+            title="VRAM"
             subtitle={vram.detail}
             series={vram}
             unavailableHint="Video memory usage is unavailable."
           />
-          <p className="meta col-span-2 text-dim">last {CHART_CAPACITY}s · updates every second</p>
+          <p className="meta col-span-2">Last {CHART_CAPACITY}s · updates every second</p>
         </div>
       )}
     </div>

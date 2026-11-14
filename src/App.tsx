@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { EcosystemApp } from '../shared/types'
 import { EnvBanner } from './components/env/EnvBanner'
-import { StatusBar } from './components/layout/StatusBar'
+import { StatusBar, type Theme } from './components/layout/StatusBar'
 import { Splitter } from './components/layout/Splitter'
 import { LogViewer, type LogPanelTab } from './components/logs/LogViewer'
 import { ProcessTable } from './components/processes/ProcessTable'
@@ -31,8 +31,18 @@ export default function App() {
   const envReady = env.status === 'ready'
   const pm2 = usePm2Processes(envReady || env.status === 'missing')
 
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem('pm2-theme')
+    return saved === 'light' || saved === 'cyber' ? saved : 'dark'
+  })
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('pm2-theme', theme)
+  }, [theme])
+
   const [selectedApp, setSelectedApp] = useState<string | null>(null)
-  const [logHeight, setLogHeight] = useState(220)
+  const [logHeight, setLogHeight] = useState(216)
   const [logTab, setLogTab] = useState<LogPanelTab>('config')
 
   // Keep selection in sync with active tab apps
@@ -109,7 +119,7 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div className="serif flex h-full items-center justify-center gap-3 text-[14px] text-muted">
+      <div className="font-serif flex h-full items-center justify-center gap-3 text-[14px] text-muted">
         Loading the last session <span className="spin" />
       </div>
     )
@@ -117,14 +127,14 @@ export default function App() {
 
   return (
     <div
-      className="flex h-full flex-col bg-bg"
+      className="flex h-full flex-col gap-2 bg-bg px-4 pb-4"
       onDragOver={(e) => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'copy'
       }}
       onDrop={handleDrop}
     >
-      <StatusBar env={env} progress={progress} />
+      <StatusBar env={env} progress={progress} theme={theme} onThemeChange={setTheme} />
       <EnvBanner
         env={env}
         progress={progress}
@@ -132,19 +142,21 @@ export default function App() {
         onRetry={handleRetryEnv}
       />
 
-      <TabBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelect={selectTab}
-        onClose={closeTab}
-        onOpen={handleOpenConfig}
-      />
+      {tabs.length > 0 && (
+        <TabBar
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelect={selectTab}
+          onClose={closeTab}
+          onOpen={handleOpenConfig}
+        />
+      )}
 
       {(globalError || activeTab?.error) && (
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-4 py-2">
-          <span className="serif text-[14px] text-ochre">{globalError ?? activeTab?.error}</span>
+        <div className="flex shrink-0 items-center justify-between gap-4 rounded-md bg-ochre-wash px-4 py-1">
+          <span className="font-serif text-[14px] text-ochre">{globalError ?? activeTab?.error}</span>
           <button type="button" className="btn-text shrink-0" onClick={() => setGlobalError(null)}>
-            dismiss
+            Dismiss
           </button>
         </div>
       )}
@@ -174,7 +186,6 @@ export default function App() {
           configName={activeTab?.fileName ?? null}
           appNames={appNames}
           selectedApp={effectiveSelected}
-          height={logHeight}
           activeTab={logTab}
           onTabChange={setLogTab}
         />

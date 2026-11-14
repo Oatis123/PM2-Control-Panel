@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import type { TabData } from '../../hooks/useSessionTabs'
-import { PixelIcon } from '../PixelIcon'
+import { Icon } from '../Icon'
 
 interface TabBarProps {
   tabs: TabData[]
@@ -12,15 +12,16 @@ interface TabBarProps {
 
 function TabBarImpl({ tabs, activeTabId, onSelect, onClose, onOpen }: TabBarProps) {
   return (
-    <div className="flex h-10 shrink-0 items-center justify-between gap-4 border-b border-line px-4">
-      <div className="tabs min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden">
+    <div className="flex min-h-10 shrink-0 items-center justify-between gap-3">
+      <nav aria-label="Ecosystem configs" className="tabs min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden">
         {tabs.map((tab) => {
           const active = tab.id === activeTabId
           return (
-            <div key={tab.id} className="group flex shrink-0 items-center gap-2">
+            <div key={tab.id} className={`tab-item ${active ? 'on' : ''}`}>
               <button
                 type="button"
-                className={`tab max-w-[240px] ${active ? 'on' : ''}`}
+                className="tab max-w-[240px]"
+                aria-current={active ? true : undefined}
                 onClick={() => onSelect(tab.id)}
                 title={tab.filePath}
               >
@@ -29,27 +30,27 @@ function TabBarImpl({ tabs, activeTabId, onSelect, onClose, onOpen }: TabBarProp
               </button>
               <button
                 type="button"
-                className="text-dim opacity-0 hover:text-ochre focus-visible:opacity-100 group-hover:opacity-100"
+                className="icon-btn"
                 onClick={(e) => {
                   e.stopPropagation()
                   onClose(tab.id)
                 }}
                 aria-label={`Close ${tab.fileName}`}
               >
-                <PixelIcon name="close" />
+                <Icon name="close" />
               </button>
             </div>
           )
         })}
-      </div>
+      </nav>
       <button
         type="button"
-        className="btn-text flex shrink-0 items-center gap-2"
+        className="btn btn-ghost btn-sm shrink-0"
         onClick={onOpen}
         title="Open an ecosystem config"
       >
-        <PixelIcon name="plus" />
-        open config
+        <Icon name="plus" />
+        Open config
       </button>
     </div>
   )

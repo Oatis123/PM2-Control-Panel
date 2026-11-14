@@ -2,34 +2,41 @@ import { memo } from 'react'
 
 interface MiniSparklineProps {
   values: number[]
-  /** Number of block cells to draw (latest samples win) */
-  cells?: number
-  /** 0–100 scale max */
-  max?: number
 }
 
-const BLOCKS = '▁▂▃▄▅▆▇█'
+const WIDTH = 32
+const HEIGHT = 14
+const SAMPLES = 12
 
-/**
- * Compact block-character sparkline for the header load monitors.
- * Missing history is drawn as dim floor blocks so the width never jumps.
- */
-function MiniSparklineImpl({ values, cells = 12, max = 100 }: MiniSparklineProps) {
-  const tail = values.slice(-cells)
-  const pad = cells - tail.length
-  const bars = tail
-    .map((v) => {
-      const ratio = Math.min(max, Math.max(0, v)) / max
-      return BLOCKS[Math.min(BLOCKS.length - 1, Math.round(ratio * (BLOCKS.length - 1)))]
-    })
-    .join('')
+export const MiniSparkline = memo(function MiniSparkline({ values }: MiniSparklineProps) {
+  const tail = values.slice(-SAMPLES)
+  const step = (WIDTH - 2) / (SAMPLES - 1)
+  const yFor = (value: number) =>
+    HEIGHT - 1 - (Math.max(0, Math.min(value, 100)) / 100) * (HEIGHT - 2)
+  const points = tail.map((value, index) => {
+    const x = WIDTH - 1 - step * (tail.length - 1 - index)
+    return `${x},${yFor(value)}`
+  })
 
   return (
-    <span className="blocks shrink-0 whitespace-pre text-[11px] leading-none" aria-hidden>
-      <span className="text-dim">{BLOCKS[0].repeat(pad)}</span>
-      {bars}
-    </span>
+    <svg
+      className="hidden shrink-0 text-moss xl:block"
+      width={WIDTH}
+      height={HEIGHT}
+      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+      aria-hidden="true"
+    >
+      {tail.length === 1 && (
+        <circle cx={WIDTH - 1} cy={yFor(tail[0])} r="1" fill="currentColor" />
+      )}
+      <polyline
+        points={points.join(' ')}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
   )
-}
-
-export const MiniSparkline = memo(MiniSparklineImpl)
+})

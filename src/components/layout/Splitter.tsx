@@ -13,7 +13,7 @@ interface SplitterProps {
 export function Splitter({
   bottomHeight,
   onBottomHeightChange,
-  minBottom = 120,
+  minBottom = 148,
   /** Upper bound in px; the top pane always keeps at least `minTop` */
   maxBottom = 640,
   minTop = 160,
@@ -29,7 +29,7 @@ export function Splitter({
       if (!dragging.current || !containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
       const fromBottom = rect.bottom - e.clientY
-      const upper = Math.max(minBottom, Math.min(maxBottom, rect.height - minTop))
+      const upper = Math.max(minBottom, Math.min(maxBottom, rect.height - minTop - 16))
       const clamped = Math.round(Math.min(upper, Math.max(minBottom, fromBottom)))
 
       // One layout per frame, however fast the pointer moves
@@ -57,19 +57,21 @@ export function Splitter({
   useEffect(() => {
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', stopDrag)
+    window.addEventListener('pointercancel', stopDrag)
     return () => {
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', stopDrag)
+      window.removeEventListener('pointercancel', stopDrag)
     }
   }, [onPointerMove, stopDrag])
 
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-hidden">{children[0]}</div>
+      <div className="panel min-h-0 flex-1 overflow-hidden">{children[0]}</div>
       <div
         role="separator"
         aria-orientation="horizontal"
-        className={`grip-wrap flex h-2 shrink-0 cursor-row-resize items-center border-t border-line ${
+        className={`grip-wrap flex h-4 shrink-0 cursor-row-resize items-center justify-center ${
           isDragging ? 'active' : ''
         }`}
         onPointerDown={(e) => {
@@ -80,7 +82,8 @@ export function Splitter({
       >
         <div className="grip" />
       </div>
-      <div className="shrink-0 overflow-hidden" style={{ height: bottomHeight }}>
+      <div className="panel min-h-0 shrink-0 overflow-hidden"
+        style={{ height: bottomHeight, maxHeight: `calc(100% - ${minTop + 16}px)` }}>
         {children[1]}
       </div>
     </div>

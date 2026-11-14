@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react'
 import type { EcosystemApp, ProcessMetrics, ProcessStatus } from '../../../shared/types'
 import { formatCpu, formatMemory, formatUptime } from '../../lib/format'
-import { PixelSleeper } from '../PixelIcon'
+import { Icon } from '../Icon'
 import { StatusDot } from '../StatusDot'
 
 interface ProcessTableProps {
@@ -67,7 +67,7 @@ function summarize(rows: Row[]): string {
     errored.length > 0
       ? `${errored.length === 1 ? errored[0].name : `${errored.length} processes`} ${
           errored.length === 1 ? 'has' : 'have'
-        } errored; ${online} of ${total} still running.`
+        } errored. ${online} of ${total} still running.`
       : online === total
         ? total === 1
           ? 'The process is running.'
@@ -123,15 +123,27 @@ const ProcessRow = memo(function ProcessRow({
 }: ProcessRowProps) {
   const idle = row.status === 'stopped' || row.status === 'unknown'
   return (
-    <tr className={selected ? 'sel-bar' : ''} onClick={() => onSelectApp(row.name)}>
+    <tr className={selected ? 'sel-bar cursor-pointer' : 'cursor-pointer'} onClick={() => onSelectApp(row.name)}>
       <td>
         <div className="flex items-center gap-2.5">
           <StatusDot status={row.status} />
           <span className={row.status === 'errored' ? 'text-ochre' : 'text-muted'}>{row.status}</span>
         </div>
       </td>
-      <td className={idle ? 'text-muted' : ''}>{row.name}</td>
-      <td className="max-w-[200px] truncate font-code text-[11px] text-muted" title={row.script}>
+      <td>
+        <button
+          type="button"
+          className={`font-semibold hover:text-moss ${idle ? 'text-muted' : ''}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onSelectApp(row.name)
+          }}
+          aria-label={`View logs for ${row.name}`}
+        >
+          {row.name}
+        </button>
+      </td>
+      <td className="max-w-[136px] truncate font-code text-[12px] text-muted lg:max-w-[200px]" title={row.script}>
         {row.script ?? '—'}
       </td>
       <td className="r">{formatCpu(row.cpu)}</td>
@@ -139,14 +151,14 @@ const ProcessRow = memo(function ProcessRow({
       <td className="r">{formatUptime(row.uptimeMs)}</td>
       <td className={`r ${row.restarts > 0 ? '' : 'text-muted'}`}>{row.restarts}</td>
       <td>
-        <div className="flex items-center justify-end gap-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             className="btn-text"
             disabled={busy || row.status === 'online'}
             onClick={() => onStart(row.name)}
           >
-            start
+            Start
           </button>
           <button
             type="button"
@@ -154,7 +166,7 @@ const ProcessRow = memo(function ProcessRow({
             disabled={busy || row.status === 'stopped'}
             onClick={() => onStop(row.name)}
           >
-            stop
+            Stop
           </button>
           <button
             type="button"
@@ -162,7 +174,7 @@ const ProcessRow = memo(function ProcessRow({
             disabled={busy}
             onClick={() => onRestart(row.name)}
           >
-            restart
+            Restart
           </button>
           <button
             type="button"
@@ -174,7 +186,7 @@ const ProcessRow = memo(function ProcessRow({
               }
             }}
           >
-            delete
+            Delete
           </button>
         </div>
       </td>
@@ -209,24 +221,29 @@ export function ProcessTable({
   if (!filePath) {
     return (
       <div
-        className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center"
+        className="grid h-full overflow-auto p-4 text-center"
         onDragOver={(e) => {
           e.preventDefault()
           e.dataTransfer.dropEffect = 'copy'
         }}
       >
-        <PixelSleeper />
-        <h2 className="head text-[20px] leading-tight">Open a PM2 ecosystem config</h2>
-        <p className="serif max-w-sm text-[14px] leading-relaxed text-muted">
-          {emptyHint ?? 'Nothing is open yet. Pick a .js file, or drag one here.'}
-        </p>
-        <button
-          type="button"
-          className={`btn mt-1 ${quietOpen ? 'btn-ghost' : ''}`}
-          onClick={onOpenConfig}
-        >
-          open config
-        </button>
+        <div className="m-auto flex flex-col items-center gap-2">
+          <span className="flex h-10 w-10 items-center justify-center rounded-md bg-moss-wash text-moss">
+            <Icon name="folder" size={22} />
+          </span>
+          <h1 className="head text-[28px] leading-tight">Open a PM2 ecosystem config</h1>
+          <p className="max-w-sm font-serif text-[15px] leading-relaxed text-muted">
+            {emptyHint ?? 'Choose an ecosystem file or drag it here.'}
+          </p>
+          <button
+            type="button"
+            className={`btn mt-1 ${quietOpen ? 'btn-ghost' : ''}`}
+            onClick={onOpenConfig}
+          >
+            <Icon name="folder" />
+            Open config
+          </button>
+        </div>
       </div>
     )
   }
@@ -235,63 +252,68 @@ export function ProcessTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-6 border-b border-line px-4 py-2.5">
-        <p
-          className={`serif min-w-0 truncate text-[14px] ${error ? 'text-ochre' : ''}`}
-          title={error ?? summary}
-        >
-          {error ?? summary}
-        </p>
-        <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center justify-between gap-4 px-4 py-3">
+        <div className="min-w-0">
+          <h1 className="head text-[28px] leading-tight">Processes</h1>
+          <p
+            className={`mt-1 truncate font-serif text-[15px] ${error ? 'text-ochre' : 'text-muted'}`}
+            title={error ?? summary}
+          >
+            {error ?? summary}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            className="btn btn-ghost"
+            className="btn btn-ghost btn-sm"
             disabled={busy || reloading || !filePath || !onReloadConfig}
             onClick={onReloadConfig}
             title="Reload config from disk"
           >
-            reload{reloading && <span className="spin" />}
+            {reloading ? <span className="spin" /> : <Icon name="refresh" />}
+            Reload
           </button>
           <button
             type="button"
-            className="btn btn-ghost"
+            className="btn btn-ghost btn-sm"
             disabled={busy || names.length === 0}
             onClick={onRestartAll}
           >
-            restart all
+            Restart all
           </button>
           <button
             type="button"
-            className="btn btn-ghost"
+            className="btn btn-ghost btn-sm"
             disabled={busy || names.length === 0}
             onClick={onStopAll}
           >
-            stop all
+            Stop all
           </button>
           <button type="button" className="btn" disabled={busy || !filePath} onClick={onStartAll}>
-            start all
+            <Icon name="play" />
+            Start all
           </button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto px-2">
         <table className="tbl">
           <thead>
             <tr>
-              <th>status</th>
-              <th>name</th>
-              <th>script</th>
-              <th className="r">cpu</th>
-              <th className="r">ram</th>
-              <th className="r">uptime</th>
-              <th className="r">restarts</th>
-              <th />
+              <th>Status</th>
+              <th>Name</th>
+              <th>Script</th>
+              <th className="r">CPU</th>
+              <th className="r">RAM</th>
+              <th className="r">Uptime</th>
+              <th className="r">Restarts</th>
+              <th className="r"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr className="cursor-default">
-                <td colSpan={8} className="serif py-8 text-center text-[14px] text-muted">
+                <td colSpan={8} className="font-serif py-8 text-center text-[14px] text-muted">
                   No apps in this config.
                 </td>
               </tr>

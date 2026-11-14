@@ -34,7 +34,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: '#080806',
+    backgroundColor: '#0F100C',
     title: 'PM2 Control Panel',
     autoHideMenuBar: true,
     ...(icon ? { icon } : {}),

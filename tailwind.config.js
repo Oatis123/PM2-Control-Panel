@@ -7,6 +7,9 @@ module.exports = {
       colors: {
         bg: 'var(--bg)',
         surface: 'var(--surface)',
+        raised: 'var(--raised)',
+        'moss-wash': 'var(--moss-wash)',
+        'ochre-wash': 'var(--ochre-wash)',
         line: 'var(--line)',
         dim: 'var(--dim)',
         muted: 'var(--muted)',
@@ -17,13 +20,15 @@ module.exports = {
         'on-accent': 'var(--on-accent)'
       },
       fontFamily: {
-        px: ['Silkscreen', 'monospace'],
-        ui: ['"Martian Mono"', '"JetBrains Mono"', 'monospace'],
-        head: ['Commissioner', 'sans-serif'],
-        serif: ['Literata', 'Georgia', 'serif'],
-        code: ['"JetBrains Mono"', 'monospace']
+        serif: 'var(--font-prose)',
+        code: 'var(--font-code)'
       },
-      borderRadius: { DEFAULT: '0', none: '0' }
+      borderRadius: {
+        sm: 'var(--r-sm)',
+        md: 'var(--r-md)',
+        lg: 'var(--r-lg)',
+        full: 'var(--r-pill)'
+      }
     }
   },
   plugins: []
